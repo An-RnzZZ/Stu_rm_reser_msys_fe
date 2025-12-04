@@ -1,260 +1,358 @@
 <template>
   <div class="register-container">
     <div class="register-form">
-      <el-card class="register-card">
-        <template #header>
-          <div class="register-header">
-            <h2>注册新用户</h2>
-            <p>创建您的自习室预约系统账户</p>
-          </div>
-        </template>
+      <h2>用户注册</h2>
 
-        <el-form
-          :model="registerForm"
-          :rules="registerRules"
-          ref="registerFormRef"
-          label-position="top"
-          @submit.prevent="handleRegister"
-        >
-          <el-form-item label="用户名" prop="username">
-            <el-input
-              v-model="registerForm.username"
-              placeholder="请输入用户名"
-              size="large"
-              :prefix-icon="User"
-            />
-          </el-form-item>
+      <!-- 注册表单 -->
+      <form @submit.prevent="handleSubmit">
+        <!-- 用户名 -->
+        <div class="form-group">
+          <label for="userName">用户名:</label>
+          <input
+            type="text"
+            id="userName"
+            v-model="formData.userName"
+            placeholder="请输入用户名"
+            required
+          />
+          <div v-if="errors.userName" class="error">{{ errors.userName }}</div>
+        </div>
 
-          <el-form-item label="邮箱" prop="email">
-            <el-input
-              v-model="registerForm.email"
-              placeholder="请输入邮箱"
-              size="large"
-              :prefix-icon="Message"
-            />
-          </el-form-item>
+        <!-- 账号/邮箱 -->
+        <div class="form-group">
+          <label for="userAccount">账号/邮箱:</label>
+          <input
+            type="text"
+            id="userAccount"
+            v-model="formData.userAccount"
+            placeholder="请输入账号或邮箱"
+            required
+          />
+          <div v-if="errors.userAccount" class="error">{{ errors.userAccount }}</div>
+        </div>
 
-          <el-form-item label="密码" prop="password">
-            <el-input
-              v-model="registerForm.password"
-              type="password"
-              placeholder="请输入密码"
-              size="large"
-              :prefix-icon="Lock"
-              show-password
-            />
-          </el-form-item>
+        <!-- 密码 -->
+        <div class="form-group">
+          <label for="userPassword">密码:</label>
+          <input
+            type="password"
+            id="userPassword"
+            v-model="formData.userPassword"
+            placeholder="请输入密码"
+            required
+          />
+          <div v-if="errors.userPassword" class="error">{{ errors.userPassword }}</div>
+        </div>
 
-          <el-form-item label="确认密码" prop="confirmPassword">
-            <el-input
-              v-model="registerForm.confirmPassword"
-              type="password"
-              placeholder="请再次输入密码"
-              size="large"
-              :prefix-icon="Lock"
-              show-password
-            />
-          </el-form-item>
+        <!-- 确认密码 -->
+        <div class="form-group">
+          <label for="confirmPassword">确认密码:</label>
+          <input
+            type="password"
+            id="confirmPassword"
+            v-model="confirmPassword"
+            placeholder="请再次输入密码"
+            required
+          />
+          <div v-if="errors.confirmPassword" class="error">{{ errors.confirmPassword }}</div>
+        </div>
 
-          <el-form-item label="手机号" prop="phone">
-            <el-input
-              v-model="registerForm.phone"
-              placeholder="请输入手机号"
-              size="large"
-              :prefix-icon="Phone"
-            />
-          </el-form-item>
+        <!-- 邮箱（可选） -->
+        <div class="form-group">
+          <label for="userEmail">邮箱（可选）:</label>
+          <input
+            type="email"
+            id="userEmail"
+            v-model="formData.userEmail"
+            placeholder="请输入邮箱"
+          />
+        </div>
 
-          <el-form-item prop="agreement">
-            <el-checkbox v-model="registerForm.agreement">
-              我已阅读并同意
-              <el-link type="primary" @click="showAgreement">《用户协议》</el-link>
-              和
-              <el-link type="primary" @click="showPrivacy">《隐私政策》</el-link>
-            </el-checkbox>
-          </el-form-item>
+        <!-- 手机号（可选） -->
+        <div class="form-group">
+          <label for="userPhone">手机号（可选）:</label>
+          <input
+            type="tel"
+            id="userPhone"
+            v-model="formData.userPhone"
+            placeholder="请输入手机号"
+          />
+        </div>
 
-          <el-form-item>
-            <el-button
-              type="primary"
-              size="large"
-              style="width: 100%"
-              :loading="loading"
-              @click="handleRegister"
-            >
-              {{ loading ? '注册中...' : '注册' }}
-            </el-button>
-          </el-form-item>
+        <!-- 提交按钮 -->
+        <button type="submit" :disabled="loading">
+          {{ loading ? '注册中...' : '立即注册' }}
+        </button>
 
-          <el-divider>或者</el-divider>
+        <!-- 消息提示 -->
+        <div v-if="message" :class="['message', messageType]">
+          {{ message }}
+        </div>
+      </form>
 
-          <el-form-item>
-            <el-button size="large" style="width: 100%" @click="goToLogin">
-              返回登录
-            </el-button>
-          </el-form-item>
-        </el-form>
-      </el-card>
+      <!-- 显示发送的JSON数据（调试用） -->
+      <div class="debug-info" v-if="debug">
+        <h3>发送的数据：</h3>
+        <pre>{{ formData }}</pre>
+        <button @click="debug = !debug">隐藏调试信息</button>
+      </div>
     </div>
   </div>
 </template>
 
-<script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { User, Lock, Message, Phone } from '@element-plus/icons-vue'
-import { useRouter } from 'vue-router'
+<script setup>
+import { ref, reactive, computed } from 'vue'
 
-const router = useRouter()
-const registerFormRef = ref<FormInstance>()
-const loading = ref(false)
-
-const registerForm = reactive({
-  username: '',
-  email: '',
-  password: '',
-  confirmPassword: '',
-  phone: '',
-  agreement: false
+// 表单数据
+const formData = reactive({
+  userName: '',
+  userAccount: '',
+  userPassword: '',
+  userEmail: '',
+  userPhone: ''
 })
 
-// 自定义确认密码验证规则
-const validateConfirmPassword = (rule: any, value: string, callback: any) => {
-  if (value === '') {
-    callback(new Error('请再次输入密码'))
-  } else if (value !== registerForm.password) {
-    callback(new Error('两次输入密码不一致!'))
-  } else {
-    callback()
+// 状态管理
+const confirmPassword = ref('')
+const loading = ref(false)
+const message = ref('')
+const messageType = ref('')
+const errors = reactive({})
+const debug = ref(false)
+
+// 表单验证
+const validateForm = () => {
+  // 清空之前的错误
+  Object.keys(errors).forEach(key => delete errors[key])
+
+  let isValid = true
+
+  // 用户名验证
+  if (!formData.userName.trim()) {
+    errors.userName = '用户名不能为空'
+    isValid = false
+  } else if (formData.userName.length < 2) {
+    errors.userName = '用户名至少2个字符'
+    isValid = false
   }
+
+  // 账号验证
+  if (!formData.userAccount.trim()) {
+    errors.userAccount = '账号不能为空'
+    isValid = false
+  } else if (formData.userAccount.length < 3) {
+    errors.userAccount = '账号至少3个字符'
+    isValid = false
+  }
+
+  // 密码验证
+  if (!formData.userPassword) {
+    errors.userPassword = '密码不能为空'
+    isValid = false
+  } else if (formData.userPassword.length < 6) {
+    errors.userPassword = '密码至少6个字符'
+    isValid = false
+  }
+
+  // 确认密码验证
+  if (!confirmPassword.value) {
+    errors.confirmPassword = '请确认密码'
+    isValid = false
+  } else if (formData.userPassword !== confirmPassword.value) {
+    errors.confirmPassword = '两次输入的密码不一致'
+    isValid = false
+  }
+
+  return isValid
 }
 
-const registerRules: FormRules = {
-  username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度在 3 到 20 个字符', trigger: 'blur' }
-  ],
-  email: [
-    { required: true, message: '请输入邮箱地址', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }
-  ],
-  password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '密码长度在 6 到 20 个字符', trigger: 'blur' }
-  ],
-  confirmPassword: [
-    { required: true, validator: validateConfirmPassword, trigger: 'blur' }
-  ],
-  phone: [
-    { required: true, message: '请输入手机号', trigger: 'blur' },
-    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号码', trigger: 'blur' }
-  ],
-  agreement: [
-    {
-      validator: (rule: any, value: boolean, callback: any) => {
-        if (!value) {
-          callback(new Error('请同意用户协议'))
-        } else {
-          callback()
-        }
-      },
-      trigger: 'change'
-    }
-  ]
-}
+// 处理表单提交
+const handleSubmit = async () => {
+  // 验证表单
+  if (!validateForm()) {
+    return
+  }
 
-const handleRegister = async () => {
-  if (!registerFormRef.value) return
-
-  const valid = await registerFormRef.value.validate()
-  if (!valid) return
-
+  // 设置加载状态
   loading.value = true
+  message.value = ''
+  messageType.value = ''
 
   try {
-    // 模拟注册请求
-    await new Promise(resolve => setTimeout(resolve, 1500))
+    // 准备发送的数据
+    const requestData = {
+      userName: formData.userName,
+      userAccount: formData.userAccount,
+      userPassword: formData.userPassword,
+      userEmail: formData.userEmail || null,  // 如果为空则发送null
+      userPhone: formData.userPhone || null   // 如果为空则发送null
+    }
 
-    ElMessage.success('注册成功！')
+    // 移除空值字段（可选）
+    Object.keys(requestData).forEach(key => {
+      if (requestData[key] === null || requestData[key] === '') {
+        delete requestData[key]
+      }
+    })
 
-    // 注册成功后跳转到登录页
-    router.push('/login')
+    console.log('发送的数据:', requestData)
+
+    // 发送POST请求到后端
+    const response = await fetch('http://localhost:8080/user', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(requestData)
+    })
+
+    // 解析响应
+    const result = await response.json()
+
+    // 处理响应
+    if (response.ok) {
+      message.value = result.message || '注册成功！'
+      messageType.value = 'success'
+
+      // 注册成功后的操作
+      setTimeout(() => {
+        // 跳转到登录页面或首页
+        console.log('注册成功，跳转到登录页面')
+        // router.push('/login')
+      }, 1500)
+    } else {
+      message.value = result.message || '注册失败，请重试'
+      messageType.value = 'error'
+    }
+
   } catch (error) {
-    ElMessage.error('注册失败，请重试')
+    console.error('注册请求失败:', error)
+    message.value = '网络错误，请检查连接'
+    messageType.value = 'error'
   } finally {
     loading.value = false
   }
 }
 
-const goToLogin = () => {
-  router.push('/login')
-}
-
-const showAgreement = () => {
-  ElMessage.info('用户协议内容开发中...')
-}
-
-const showPrivacy = () => {
-  ElMessage.info('隐私政策内容开发中...')
-}
+// 实时显示表单数据（调试用）
+const formDataJson = computed(() => {
+  return JSON.stringify(formData, null, 2)
+})
 </script>
 
 <style scoped>
 .register-container {
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 20px;
+  min-height: 100vh;
+  background-color: #f5f5f5;
 }
 
 .register-form {
   width: 100%;
-  max-width: 450px;
+  max-width: 400px;
+  padding: 30px;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
 }
 
-.register-card {
-  border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-}
-
-.register-header {
+h2 {
   text-align: center;
-  padding: 10px 0;
+  margin-bottom: 20px;
+  color: #333;
 }
 
-.register-header h2 {
-  margin: 0 0 8px 0;
-  color: #2c3e50;
-  font-size: 24px;
+.form-group {
+  margin-bottom: 20px;
 }
 
-.register-header p {
-  margin: 0;
-  color: #7f8c8d;
+label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 600;
+  color: #555;
+}
+
+input {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
   font-size: 14px;
+  transition: border-color 0.3s;
 }
 
-:deep(.el-form-item__label) {
-  font-weight: 600;
-  color: #2c3e50;
+input:focus {
+  outline: none;
+  border-color: #007bff;
 }
 
-:deep(.el-input__wrapper) {
-  border-radius: 8px;
+button {
+  width: 100%;
+  padding: 12px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: background-color 0.3s;
 }
 
-:deep(.el-button) {
-  border-radius: 8px;
-  font-weight: 600;
+button:hover:not(:disabled) {
+  background-color: #0056b3;
 }
 
-/* 响应式设计 */
-@media (max-width: 480px) {
-  .register-form {
-    max-width: 100%;
-    padding: 0 15px;
-  }
+button:disabled {
+  background-color: #cccccc;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #dc3545;
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.message {
+  margin-top: 15px;
+  padding: 10px;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.debug-info {
+  margin-top: 20px;
+  padding: 15px;
+  background-color: #f8f9fa;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+}
+
+.debug-info h3 {
+  margin-top: 0;
+}
+
+.debug-info pre {
+  background-color: #e9ecef;
+  padding: 10px;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 12px;
 }
 </style>
