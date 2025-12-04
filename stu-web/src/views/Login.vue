@@ -16,18 +16,18 @@
           label-position="top"
           @submit.prevent="handleLogin"
         >
-          <el-form-item label="用户名" prop="username">
+          <el-form-item label="账号" prop="Account">
             <el-input
-              v-model="loginForm.username"
-              placeholder="请输入用户名"
+              v-model="loginForm.userAccount"
+              placeholder="请输入账号"
               size="large"
               :prefix-icon="User"
             />
           </el-form-item>
 
-          <el-form-item label="密码" prop="password">
+          <el-form-item label="密码" prop="Password">
             <el-input
-              v-model="loginForm.password"
+              v-model="loginForm.userPassword"
               type="password"
               placeholder="请输入密码"
               size="large"
@@ -38,7 +38,7 @@
 
           <el-form-item>
             <div class="form-item-row">
-              <el-checkbox v-model="loginForm.rememberMe">记住我</el-checkbox>
+
               <el-link type="primary" class="forgot-link">忘记密码？</el-link>
             </div>
           </el-form-item>
@@ -104,20 +104,19 @@ const loading = ref(false)
 
 // 表单数据
 const loginForm = reactive({
-  username: '',
-  password: '',
-  rememberMe: false
+  userAccount: '',
+  userPassword: ''
 })
 
 // 表单验证规则
 const loginRules: FormRules = {
-  username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度在 3 到 20 个字符', trigger: 'blur' }
+  userAccount: [
+    { required: true, message: '请输入账号', trigger: 'blur' },
+
   ],
-  password: [
+  userPassword: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '密码长度在 6 到 20 个字符', trigger: 'blur' }
+    { min: 6, max: 12, message: '密码长度在 6 到 12 个字符', trigger: 'blur' }
   ]
 }
 
@@ -132,22 +131,49 @@ const handleLogin = async () => {
   loading.value = true
 
   try {
-    // 模拟登录请求
-    await new Promise(resolve => setTimeout(resolve, 1000))
+    // 发送 POST 请求到后端进行登录验证
+    const response = await fetch('http://localhost:8080/user/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        userAccount: loginForm.userAccount,
+        userPassword: loginForm.userPassword
+      })
+    });
 
-    // 保存登录状态
-    sessionStorage.setItem('isLoggedIn', 'true')
-    sessionStorage.setItem('username', loginForm.username)
+    // 解析后端响应
+    const result = await response.json();
 
-    ElMessage.success('登录成功！')
+    if (result.code === 200) {
+      // 登录成功，保存状态，跳转到首页
+      sessionStorage.setItem('isLoggedIn', 'true');
+      sessionStorage.setItem('userAccount', loginForm.userAccount);
 
-    // 跳转到首页
-    router.push('/home')
+      ElMessage.success(result.message || '登录成功！');
+      router.push('/home');
+    } else {
+      // 登录失败，显示错误信息
+      if (result.data && typeof result.data === 'object') {
+        // 循环展示每个字段的错误信息
+        for (const field in result.data) {
+          if (result.data.hasOwnProperty(field)) {
+            ElMessage.error(result.data[field]); // 显示每个字段的错误信息
+          }
+        }
+      } else {
+        // 通用错误信息
+        ElMessage.error(result.message || '登录失败，用户名或密码错误');
+      }
+    }
   } catch (error) {
-    ElMessage.error('登录失败')
+    console.error('登录请求失败:', error);
+    ElMessage.error('登录失败，请检查网络连接');
   } finally {
-    loading.value = false
+    loading.value = false;
   }
+
 }
 
 // 注册处理
