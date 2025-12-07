@@ -55,9 +55,9 @@
           </div>
 
           <p class="hint">
-            · 座位在当前时间段内<br/>
+            · 座位在当前时间段内<br />
             · 预约结束时间 ≤ 所选结束时间 → 显示
-            <span class="tag tag-partial">半空闲</span><br/>
+            <span class="tag tag-partial">半空闲</span><br />
             · 预约结束时间 &gt; 所选结束时间 → 显示
             <span class="tag tag-occupied">占用</span>
           </p>
@@ -89,7 +89,12 @@
     </div>
 
     <!-- 座位 Tooltip -->
-    <div class="tooltip" ref="tooltipRef" :style="tooltipStyle" v-show="hoverInfo && !freezeTooltip">
+    <div
+      class="tooltip"
+      ref="tooltipRef"
+      :style="tooltipStyle"
+      v-show="hoverInfo && !freezeTooltip"
+    >
       {{ hoverInfo }}
     </div>
 
@@ -114,7 +119,7 @@
           <div>
             <label>开始时间</label>
             <select v-model="reservationForm.start">
-              <option v-for="t in timeSlots" :key="'start-'+t" :value="t">
+              <option v-for="t in timeSlots" :key="'start-' + t" :value="t">
                 {{ t }}
               </option>
             </select>
@@ -122,7 +127,7 @@
           <div>
             <label>结束时间（最晚 22:00）</label>
             <select v-model="reservationForm.end">
-              <option v-for="t in timeSlots" :key="'end-'+t" :value="t">
+              <option v-for="t in timeSlots" :key="'end-' + t" :value="t">
                 {{ t }}
               </option>
             </select>
@@ -130,9 +135,7 @@
         </div>
 
         <div class="dialog-actions">
-          <button class="btn-cancel" @click="cancelReservation">
-            取消
-          </button>
+          <button class="btn-cancel" @click="cancelReservation">取消</button>
           <button class="btn-confirm" @click="confirmReservation">
             确认预约
           </button>
@@ -152,6 +155,7 @@ import { OutlinePass } from 'three/examples/jsm/postprocessing/OutlinePass.js';
 import { Vector2 } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import gsap from 'gsap';
+import axios from 'axios';
 
 // --- 状态管理 ---
 const canvasRef = ref(null);
@@ -167,10 +171,10 @@ const freezeTooltip = ref(true);
 
 const loading = ref(true);
 
-// 预约弹窗状态
+// 预约弹窗状态（保留前端本地逻辑）
 const showReservationModal = ref(false);
-const selectedSeat = ref(null);          // Three 对象
-const reservationSeatId = ref('');       // 座位编号
+const selectedSeat = ref(null); // Three 对象
+const reservationSeatId = ref(''); // 座位编号
 const reservationForm = reactive({
   date: '',
   start: '',
@@ -186,18 +190,18 @@ const timeFilter = reactive({
 const nowTimeLabel = ref('');
 
 // 日期选项（今/明/后天）
-const dateOptions = ref([]); // [{value:'YYYY-MM-DD', label:'今天 2025-12-05'}, ...]
+const dateOptions = ref([]);
 // 时间段选项（半小时，最晚 22:00）
-const timeSlots = ref([]);   // ['08:00','08:30',...,'22:00']
+const timeSlots = ref([]);
 
 // --- Three.js 核心变量 ---
 let scene, camera, renderer, raycaster, mouse;
 let buildingRootGroup;
-let floorStructureMeshes = [];   // 建筑主体盒子
-let floorInteriorGroups = [];   // 每层内部组
-let floorShellGroups = [];      // 每层“幽灵墙”轮廓
-let roofMesh = null;            // 屋顶
-let envGroup = null;            // 环境（马路、树等）
+let floorStructureMeshes = []; // 建筑主体盒子
+let floorInteriorGroups = []; // 每层内部组（内容由后端动态生成）
+let floorShellGroups = []; // 每层“幽灵墙”轮廓
+let roofMesh = null; // 屋顶
+let envGroup = null; // 环境（马路、树等）
 let animationId;
 
 // 后处理
@@ -214,158 +218,9 @@ const libraryWidth = 40;
 // 工具：解析 "HH:MM" 为分钟数
 const parseTimeStr = (str) => {
   if (!str || typeof str !== 'string' || !str.includes(':')) return null;
-  const [h, m] = str.split(':').map(v => parseInt(v, 10));
+  const [h, m] = str.split(':').map((v) => parseInt(v, 10));
   if (Number.isNaN(h) || Number.isNaN(m)) return null;
   return h * 60 + m;
-};
-
-// --- 自习室和座位布局 ---
-const libraryData = {
-  /**
-   * 一层：2 个自习室 + 1 个接待区
-   */
-  floor1: [
-    {
-      id: 'room1-1',
-      name: '一层自习室 A',
-      position: { x: -10, y: 0, z: -6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-    {
-      id: 'room1-2',
-      name: '一层自习室 B',
-      position: { x: 10, y: 0, z: -6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-    {
-      id: 'room1-3',
-      name: '接待与问询',
-      position: { x: 0, y: 0, z: 8 },
-      size: { width: 14, depth: 8 },
-      seats: [],
-      type: 'info'
-    },
-  ],
-
-  /**
-   * 二层：4 个自习室
-   */
-  floor2: [
-    {
-      id: 'room2-1',
-      name: '二层自习室 A',
-      position: { x: -10, y: 0, z: -6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-    {
-      id: 'room2-2',
-      name: '二层自习室 B',
-      position: { x: 10, y: 0, z: -6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-    {
-      id: 'room2-3',
-      name: '二层自习室 C',
-      position: { x: -10, y: 0, z: 6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-    {
-      id: 'room2-4',
-      name: '二层自习室 D',
-      position: { x: 10, y: 0, z: 6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-  ],
-
-  /**
-   * 三层：4 个自习室
-   */
-  floor3: [
-    {
-      id: 'room3-1',
-      name: '三层自习室 A',
-      position: { x: -10, y: 0, z: -6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-    {
-      id: 'room3-2',
-      name: '三层自习室 B',
-      position: { x: 10, y: 0, z: -6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-    {
-      id: 'room3-3',
-      name: '三层自习室 C',
-      position: { x: -10, y: 0, z: 6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-    {
-      id: 'room3-4',
-      name: '三层自习室 D',
-      position: { x: 10, y: 0, z: 6 },
-      size: { width: 14, depth: 10 },
-      seats: [
-        { x: -6, z: -2 }, { x: -3, z: -2 }, { x: 0, z: -2 }, { x: 3, z: -2 }, { x: 6, z: -2 },
-        { x: -6, z:  0 }, { x: -3, z:  0 }, { x: 0, z:  0 }, { x: 3, z:  0 }, { x: 6, z:  0 },
-        { x: -6, z:  2 }, { x: -3, z:  2 }, { x: 0, z:  2 }, { x: 3, z:  2 }, { x: 6, z:  2 },
-      ],
-      type: 'study'
-    },
-  ]
 };
 
 // --- 材质 ---
@@ -375,49 +230,49 @@ const materials = {
     roughness: 0.7,
     metalness: 0.08,
     transparent: true,
-    opacity: 0.95,
+    opacity: 0.95
   }),
   buildingWindow: new THREE.MeshStandardMaterial({
     color: 0xd9e7f5,
     transparent: true,
     opacity: 0.32,
     roughness: 0.15,
-    metalness: 0.08,
+    metalness: 0.08
   }),
   ground: new THREE.MeshStandardMaterial({
     color: 0xd5e6f0,
     roughness: 0.85,
-    metalness: 0,
+    metalness: 0
   }),
   roomFloor: new THREE.MeshStandardMaterial({
     color: 0xf7f9fc,
     roughness: 0.6,
-    metalness: 0.03,
+    metalness: 0.03
   }),
   seatFree: new THREE.MeshStandardMaterial({
     color: 0x7ec4b8,
     roughness: 0.55,
-    metalness: 0.08,
+    metalness: 0.08
   }),
   seatOccupied: new THREE.MeshStandardMaterial({
     color: 0xf28b82,
     roughness: 0.55,
-    metalness: 0.08,
+    metalness: 0.08
   }),
   seatPartial: new THREE.MeshStandardMaterial({
     color: 0xffe9a7,
     roughness: 0.55,
-    metalness: 0.08,
+    metalness: 0.08
   }),
   highlight: new THREE.MeshStandardMaterial({
     color: 0x9ec5ff,
     roughness: 0.35,
-    metalness: 0.15,
+    metalness: 0.15
   }),
   selected: new THREE.MeshStandardMaterial({
     color: 0xfff59d,
     roughness: 0.35,
-    metalness: 0.15,
+    metalness: 0.15
   }),
   bookShelf: new THREE.MeshStandardMaterial({
     color: 0x8b6b5c,
@@ -429,53 +284,62 @@ const materials = {
   desk: new THREE.MeshStandardMaterial({
     color: 0xd0c0b2,
     roughness: 0.55,
-    metalness: 0.04,
+    metalness: 0.04
   }),
   road: new THREE.MeshStandardMaterial({
     color: 0x4b5563,
     roughness: 0.9,
-    metalness: 0.05,
+    metalness: 0.05
   }),
   roadLine: new THREE.MeshStandardMaterial({
     color: 0xe5e7eb,
     roughness: 0.8,
-    metalness: 0.02,
+    metalness: 0.02
   }),
   sidewalk: new THREE.MeshStandardMaterial({
     color: 0xe0e7ff,
     roughness: 0.85,
-    metalness: 0.02,
+    metalness: 0.02
   }),
   treeTrunk: new THREE.MeshStandardMaterial({
     color: 0x795548,
     roughness: 0.9,
-    metalness: 0.0,
+    metalness: 0.0
   }),
   treeLeaf: new THREE.MeshStandardMaterial({
     color: 0x7fbf9f,
     roughness: 0.7,
-    metalness: 0.02,
+    metalness: 0.02
   }),
   ghostWall: new THREE.MeshStandardMaterial({
     color: 0xa9bed8,
     roughness: 0.9,
     metalness: 0.0,
     transparent: true,
-    opacity: 0.18,
+    opacity: 0.18
   })
 };
 
 // --- 初始化场景 ---
 const initScene = () => {
   scene = new THREE.Scene();
-  scene.background = new THREE.Color("#e8f1fb");
+  scene.background = new THREE.Color('#e8f1fb');
   scene.add(new THREE.AmbientLight(0xfafcff, 0.9));
 
-  camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+  camera = new THREE.PerspectiveCamera(
+    45,
+    window.innerWidth / window.innerHeight,
+    0.1,
+    1000
+  );
   camera.position.set(55, 45, 55);
   camera.lookAt(0, 5, 0);
 
-  renderer = new THREE.WebGLRenderer({ canvas: canvasRef.value, antialias: true, alpha: true });
+  renderer = new THREE.WebGLRenderer({
+    canvas: canvasRef.value,
+    antialias: true,
+    alpha: true
+  });
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -493,7 +357,7 @@ const initScene = () => {
   controls.minPolarAngle = Math.PI / 6;
   controls.maxPolarAngle = Math.PI / 2.1;
   controls.target.set(0, 5, 0);
-  controls.enabled = false;  // 先禁用，等初始飞入动画结束再启用
+  controls.enabled = false; // 初始飞入结束后再启用
   controls.update();
 
   scene.add(new THREE.AmbientLight(0xf6fbff, 0.8));
@@ -518,7 +382,11 @@ const initScene = () => {
   composer = new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
 
-  outlinePass = new OutlinePass(new Vector2(window.innerWidth, window.innerHeight), scene, camera);
+  outlinePass = new OutlinePass(
+    new Vector2(window.innerWidth, window.innerHeight),
+    scene,
+    camera
+  );
   outlinePass.edgeStrength = 2.0;
   outlinePass.edgeGlow = 0.5;
   outlinePass.edgeThickness = 1.0;
@@ -527,7 +395,10 @@ const initScene = () => {
   outlinePass.hiddenEdgeColor.set(0x1b2636);
   composer.addPass(outlinePass);
 
-  smaaPass = new SMAAPass(window.innerWidth * renderer.getPixelRatio(), window.innerHeight * renderer.getPixelRatio());
+  smaaPass = new SMAAPass(
+    window.innerWidth * renderer.getPixelRatio(),
+    window.innerHeight * renderer.getPixelRatio()
+  );
   composer.addPass(smaaPass);
 
   // 初始飞入动画
@@ -545,7 +416,7 @@ const initScene = () => {
         y: 45,
         z: 55,
         duration: 1.5,
-        ease: "power2.out",
+        ease: 'power2.out',
         delay: 0.3,
         onUpdate: () => {
           camera.lookAt(0, 5, 0);
@@ -563,7 +434,7 @@ const initScene = () => {
   }, 800);
 };
 
-// --- 建筑 + 幽灵墙 ---
+// --- 建筑 + 幽灵墙（外壳仍然是静态 3 层，内部动态） ---
 const createBuilding = () => {
   buildingRootGroup = new THREE.Group();
   scene.add(buildingRootGroup);
@@ -576,24 +447,43 @@ const createBuilding = () => {
   buildingRootGroup.add(ground);
 
   for (let i = 0; i < totalFloors; i++) {
-    const floorY = i * FLOOR_LEVEL_HEIGHT + (FLOOR_LEVEL_HEIGHT / 2);
+    const floorY = i * FLOOR_LEVEL_HEIGHT + FLOOR_LEVEL_HEIGHT / 2;
     const floorSizeXY = libraryWidth * 0.9 - i * 0.5;
 
-    const wallGeo = new THREE.BoxGeometry(floorSizeXY, FLOOR_LEVEL_HEIGHT, floorSizeXY);
+    const wallGeo = new THREE.BoxGeometry(
+      floorSizeXY,
+      FLOOR_LEVEL_HEIGHT,
+      floorSizeXY
+    );
     const floorMesh = new THREE.Mesh(wallGeo, materials.buildingWall.clone());
     floorMesh.position.y = floorY;
     floorMesh.castShadow = true;
     floorMesh.receiveShadow = true;
-    floorMesh.userData = { type: 'floor', floorNumber: i + 1, name: `图书馆${i+1}层` };
+    floorMesh.userData = {
+      type: 'floor',
+      floorNumber: i + 1,
+      name: `图书馆${i + 1}层`
+    };
     buildingRootGroup.add(floorMesh);
     floorStructureMeshes.push(floorMesh);
 
-    const windowPaneGeo = new THREE.BoxGeometry(floorSizeXY * 0.7, FLOOR_LEVEL_HEIGHT * 0.6, 0.1);
+    const windowPaneGeo = new THREE.BoxGeometry(
+      floorSizeXY * 0.7,
+      FLOOR_LEVEL_HEIGHT * 0.6,
+      0.1
+    );
     const window1 = new THREE.Mesh(windowPaneGeo, materials.buildingWindow);
     window1.position.set(0, floorY, floorSizeXY / 2 + 0.05);
     const window2 = window1.clone();
     window2.position.z *= -1;
-    const window3 = new THREE.Mesh(new THREE.BoxGeometry(0.1, FLOOR_LEVEL_HEIGHT * 0.6, floorSizeXY * 0.7), materials.buildingWindow);
+    const window3 = new THREE.Mesh(
+      new THREE.BoxGeometry(
+        0.1,
+        FLOOR_LEVEL_HEIGHT * 0.6,
+        floorSizeXY * 0.7
+      ),
+      materials.buildingWindow
+    );
     window3.position.set(floorSizeXY / 2 + 0.05, floorY, 0);
     const window4 = window3.clone();
     window4.position.x *= -1;
@@ -651,7 +541,7 @@ const createBuilding = () => {
   const roofMat = new THREE.MeshStandardMaterial({
     color: 0x60748e,
     roughness: 0.6,
-    metalness: 0.1,
+    metalness: 0.1
   });
   roofMesh = new THREE.Mesh(roofGeo, roofMat);
   roofMesh.position.y = totalFloors * FLOOR_LEVEL_HEIGHT + 0.2;
@@ -694,7 +584,7 @@ const createEnvironment = () => {
     treePositions.push({ x, z: libraryWidth + 12 });
   }
 
-  treePositions.forEach(pos => {
+  treePositions.forEach((pos) => {
     const tree = createTree();
     tree.position.set(pos.x, 0, pos.z);
     envGroup.add(tree);
@@ -723,8 +613,8 @@ const createTree = () => {
   return treeGroup;
 };
 
-// --- 楼层内部：座位 + 书架 + 前台 ---
-const createFloorDetails = () => {
+// --- 每层创建一个空的内部 group，内容全部由后端填充 ---
+const createEmptyFloorGroups = () => {
   for (let i = 1; i <= totalFloors; i++) {
     const floorGroup = new THREE.Group();
     floorGroup.name = `Floor_${i}_Interior`;
@@ -732,193 +622,62 @@ const createFloorDetails = () => {
     floorGroup.visible = false;
     floorInteriorGroups.push(floorGroup);
     scene.add(floorGroup);
-
-    const floorData = libraryData[`floor${i}`];
-    if (floorData) {
-      floorData.forEach(room => {
-        const roomGroup = new THREE.Group();
-        roomGroup.position.set(room.position.x, 0.1, room.position.z);
-
-        const roomFloorGeo = new THREE.PlaneGeometry(room.size.width, room.size.depth);
-        const roomFloor = new THREE.Mesh(roomFloorGeo, materials.roomFloor.clone());
-        roomFloor.rotation.x = -Math.PI / 2;
-        roomFloor.receiveShadow = true;
-        roomFloor.userData = { type: 'room', id: room.id, name: room.name, floor: i };
-        roomGroup.add(roomFloor);
-
-        // 座位
-        room.seats.forEach((seatPos, index) => {
-          const unitGroup = new THREE.Group();
-          unitGroup.userData = {
-            type: 'seat',
-            id: `${room.id}-S${index + 1}`,
-            status: 'free',                 // free / partial / occupied / selected
-            floor: i,
-            reservation: null               // { date, start, end } or null
-          };
-          unitGroup.position.set(seatPos.x, 0, seatPos.z);
-
-          const chairGeoCombined = new THREE.Group();
-
-          const seatPadGeo = new THREE.BoxGeometry(0.7, 0.1, 0.7);
-          const seatPad = new THREE.Mesh(seatPadGeo, materials.seatFree.clone());
-          seatPad.position.y = 0.4;
-          chairGeoCombined.add(seatPad);
-
-          const backRestGeo = new THREE.BoxGeometry(0.7, 0.8, 0.1);
-          const backRest = new THREE.Mesh(backRestGeo, materials.seatFree.clone());
-          backRest.position.set(0, 0.8, -0.3);
-          chairGeoCombined.add(backRest);
-
-          const legGeo = new THREE.BoxGeometry(0.1, 0.4, 0.1);
-          const leg1 = new THREE.Mesh(legGeo, materials.seatFree.clone()); leg1.position.set(0.3, 0.2, 0.3);
-          const leg2 = leg1.clone(); leg2.position.x *= -1;
-          const leg3 = leg1.clone(); leg3.position.z *= -1;
-          const leg4 = leg1.clone(); leg4.position.x *= -1; leg4.position.z *= -1;
-          chairGeoCombined.add(leg1, leg2, leg3, leg4);
-
-          chairGeoCombined.traverse(c => {
-            if (c.isMesh) {
-              c.material = materials.seatFree.clone();
-              c.castShadow = true;
-            }
-          });
-
-          unitGroup.add(chairGeoCombined);
-
-          const tableGeo = new THREE.BoxGeometry(1.2, 0.7, 0.8);
-          const table = new THREE.Mesh(tableGeo, materials.desk.clone());
-          table.position.set(0, 0.35, 1.0);
-          table.castShadow = true;
-          table.receiveShadow = true;
-          unitGroup.add(table);
-
-          roomGroup.add(unitGroup);
-        });
-
-        // 学习区域书架
-        if (room.type === 'study') {
-          const shelfHeight = 2.5;
-          const shelfWidth  = 0.5;
-          const shelfDepth  = room.size.depth * 0.5;
-          const xOffset     = room.size.width / 2  + shelfWidth / 2 + 0.3;
-          const zOffset     = room.size.depth / 2 - shelfDepth / 2 - 0.3;
-
-          const leftBackShelfMat = materials.bookShelf.clone();
-          const leftBackShelfGeo = new THREE.BoxGeometry(shelfWidth, shelfHeight, shelfDepth);
-          const leftBackShelf = new THREE.Mesh(leftBackShelfGeo, leftBackShelfMat);
-          leftBackShelf.position.set(-xOffset, shelfHeight / 2, -zOffset);
-          leftBackShelf.castShadow = true;
-          leftBackShelf.receiveShadow = true;
-          leftBackShelf.userData = {
-            type: 'bookshelf',
-            side: 'left-back',
-            originalOpacity: leftBackShelf.material.opacity
-          };
-          roomGroup.add(leftBackShelf);
-
-          const rightFrontShelfMat = materials.bookShelf.clone();
-          const rightFrontShelfGeo = new THREE.BoxGeometry(shelfWidth, shelfHeight, shelfDepth);
-          const rightFrontShelf = new THREE.Mesh(rightFrontShelfGeo, rightFrontShelfMat);
-          rightFrontShelf.position.set(xOffset, shelfHeight / 2, zOffset);
-          rightFrontShelf.castShadow = true;
-          rightFrontShelf.receiveShadow = true;
-          rightFrontShelf.userData = {
-            type: 'bookshelf',
-            side: 'right-front',
-            originalOpacity: rightFrontShelf.material.opacity
-          };
-          roomGroup.add(rightFrontShelf);
-        }
-
-        // 接待前台
-        if (room.type === 'info') {
-          const counterGeo = new THREE.BoxGeometry(room.size.width * 0.8, 1.0, 1.2);
-          const counterMat = materials.desk.clone();
-          counterMat.color = new THREE.Color(0xcad7f5);
-          const counter = new THREE.Mesh(counterGeo, counterMat);
-          counter.position.set(0, 0.5, room.size.depth * 0.1);
-          counter.castShadow = true;
-          counter.receiveShadow = true;
-          counter.userData = { type: 'infoCounter' };
-          roomGroup.add(counter);
-
-          const screenGeo = new THREE.BoxGeometry(1.2, 0.7, 0.05);
-          const screenMat = new THREE.MeshStandardMaterial({
-            color: 0x0f172a,
-            roughness: 0.4,
-            metalness: 0.2,
-            emissive: 0x1d4ed8,
-            emissiveIntensity: 0.3
-          });
-          const screen = new THREE.Mesh(screenGeo, screenMat);
-          screen.position.set(-room.size.width * 0.2, 1.1, counter.position.z - 0.55);
-          roomGroup.add(screen);
-
-          const signGeo = new THREE.BoxGeometry(0.8, 0.4, 0.05);
-          const signMat = new THREE.MeshStandardMaterial({
-            color: 0xeff6ff,
-            roughness: 0.7,
-            metalness: 0.05
-          });
-          const sign = new THREE.Mesh(signGeo, signMat);
-          sign.position.set(room.size.width * 0.1, 0.9, counter.position.z - 0.55);
-          roomGroup.add(sign);
-
-          const pillarGeo = new THREE.CylinderGeometry(0.1, 0.1, 1.0, 8);
-          const pillarMat = new THREE.MeshStandardMaterial({
-            color: 0xb0bec5,
-            roughness: 0.6,
-            metalness: 0.2,
-          });
-          const pillar = new THREE.Mesh(pillarGeo, pillarMat);
-          pillar.position.set(counter.position.x + counterGeo.parameters.width / 2 - 0.4, 0.8, counter.position.z - 0.4);
-          roomGroup.add(pillar);
-        }
-
-        floorGroup.add(roomGroup);
-      });
-    }
   }
 };
 
-// --- 根据当前时间筛选计算座位状态 ---
+// --- 根据当前时间筛选计算座位状态（使用后端的 resvSummary） ---
 const computeSeatStatusByFilter = (seat) => {
-  const res = seat.userData.reservation;
-  if (!res) return 'free';
-
-  if (!timeFilter.date || res.date !== timeFilter.date) {
-    return 'free'; // 不同日期视为空闲
-  }
+  const list = seat.userData.resvSummary;
+  if (!list || list.length === 0) return 'free';
 
   const filterStart = parseTimeStr(timeFilter.start);
-  const filterEnd   = parseTimeStr(timeFilter.end);
-  const resEnd      = parseTimeStr(res.end);
+  const filterEnd = parseTimeStr(timeFilter.end);
+  if (filterStart == null || filterEnd == null) return 'free';
 
-  if (filterStart == null || filterEnd == null || resEnd == null) return 'occupied';
-  if (filterEnd > 22 * 60) return 'occupied';
+  let occupied = false;
+  let partial = false;
 
-  if (resEnd <= filterStart) return 'free';
-  if (resEnd <= filterEnd) return 'partial';
-  return 'occupied';
-};
+  for (const r of list) {
+    const resStart = parseTimeStr(r.start);
+    const resEnd = parseTimeStr(r.end);
+    if (resStart == null || resEnd == null) continue;
 
-// 把 status 映射到材质
-const applySeatMaterialByStatus = (seat) => {
-  let mat;
-  if (seat.userData.status === 'free') {
-    mat = materials.seatFree;
-  } else if (seat.userData.status === 'partial') {
-    mat = materials.seatPartial;
-  } else if (seat.userData.status === 'occupied') {
-    mat = materials.seatOccupied;
-  } else if (seat.userData.status === 'selected') {
-    mat = materials.selected;
+    // 完全不重叠
+    if (resEnd <= filterStart || resStart >= filterEnd) continue;
+
+    // 完全覆盖
+    if (resStart <= filterStart && resEnd >= filterEnd) {
+      occupied = true;
+      break;
+    }
+
+    // 有部分重叠
+    partial = true;
   }
 
-  if (!mat) return;
-  seat.traverse(child => {
+  if (occupied) return 'occupied';
+  if (partial) return 'partial';
+  return 'free';
+};
+
+
+// 根据状态切换座位材质
+const applySeatMaterialByStatus = (seat) => {
+  const status = seat.userData.status;
+  let mat;
+  if (status === 'free') mat = materials.seatFree;
+  else if (status === 'partial') mat = materials.seatPartial;
+  else if (status === 'occupied') mat = materials.seatOccupied;
+  else if (status === 'selected') mat = materials.selected;
+  else mat = materials.seatFree;
+
+  seat.traverse((child) => {
     if (child.isMesh) {
+      // 跳过桌子，只改椅子：用父级 subtype 区分
+      const parent = child.parent;
+      if (parent && parent.userData && parent.userData.subtype === 'table') {
+        return;
+      }
       child.material = mat.clone();
     }
   });
@@ -929,7 +688,7 @@ const applyTimeFilterToCurrentFloorSeats = () => {
   const group = floorInteriorGroups[currentFloor.value - 1];
   if (!group) return;
 
-  group.traverse(obj => {
+  group.traverse((obj) => {
     if (obj.userData && obj.userData.type === 'seat') {
       if (obj.userData.status !== 'selected') {
         obj.userData.status = computeSeatStatusByFilter(obj);
@@ -939,24 +698,226 @@ const applyTimeFilterToCurrentFloorSeats = () => {
   });
 };
 
-// 供 UI 调用
-const applyTimeFilter = () => {
-  const startM = parseTimeStr(timeFilter.start);
-  let endM = parseTimeStr(timeFilter.end);
-  const lastM = 22 * 60;
+// --- 构建房间与座位：完全根据后端 RoomDisplayDTO ---
+// 根据 RoomDisplayDTO 构建房间 + 里面所有座位
+const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
+  console.log('buildRoomFromDTO:', roomDTO);
 
-  if (endM == null || endM > lastM) {
-    timeFilter.end = '22:00';
-    endM = lastM;
-  }
-  if (startM != null && endM != null && endM <= startM) {
-    const idx = timeSlots.value.indexOf(timeFilter.start);
-    const nextIdx = Math.min(idx + 1, timeSlots.value.length - 1);
-    timeFilter.end = timeSlots.value[nextIdx];
+  const roomGroup = new THREE.Group();
+
+  // ✅ 房间世界坐标：用后端的 position.x / position.z
+  //   y 高度由整个楼层 group 决定，这里只加一点点偏移防止 z-fighting
+  if (roomDTO.position) {
+    roomGroup.position.set(roomDTO.position.x, 0.1, roomDTO.position.z);
+  } else {
+    roomGroup.position.set(0, 0.1, 0);
   }
 
-  applyTimeFilterToCurrentFloorSeats();
+  // ✅ 房间平面：size.width / size.depth
+  const width = roomDTO.size?.width ?? 10;
+  const depth = roomDTO.size?.depth ?? 10;
+
+  const roomFloorGeo = new THREE.PlaneGeometry(width, depth);
+  const roomFloor = new THREE.Mesh(roomFloorGeo, materials.roomFloor.clone());
+  roomFloor.rotation.x = -Math.PI / 2;
+  roomFloor.receiveShadow = true;
+  roomFloor.userData = {
+    type: 'room',
+    id: roomDTO.id,
+    name: roomDTO.name,
+    floor: floorNum,
+    roomType: roomDTO.type
+  };
+  roomGroup.add(roomFloor);
+
+  // ✅ 座位：seats 可能为空，这里用 (roomDTO.seats || [])
+  (roomDTO.seats || []).forEach((seatDTO) => {
+    const unitGroup = new THREE.Group();
+    unitGroup.userData = {
+      type: 'seat',
+      // 展示用编号：roomId-S{number}
+      id: `${roomDTO.id}-S${seatDTO.number}`,
+      number: seatDTO.number,
+      floor: floorNum,
+
+      backendSeatId: seatDTO.id,
+      resvSummary: seatDTO.resvSummary || [], // [{ start, end }]
+      status: 'free',
+      reservation: null // 前端临时预约
+    };
+
+    // ✅ 注意：你的 JSON 里 seat 用的是 x / y，
+    //    原来的静态数据是 x / z，所以我们这里把你给的 y 当作 z 用
+    unitGroup.position.set(seatDTO.x || 0, 0, seatDTO.y || 0);
+
+    // --- 椅子（chairGroup） ---
+    const chairGroup = new THREE.Group();
+    chairGroup.userData = { subtype: 'chair' };
+
+    const seatPadGeo = new THREE.BoxGeometry(0.7, 0.1, 0.7);
+    const seatPad = new THREE.Mesh(seatPadGeo, materials.seatFree.clone());
+    seatPad.position.y = 0.4;
+    chairGroup.add(seatPad);
+
+    const backRestGeo = new THREE.BoxGeometry(0.7, 0.8, 0.1);
+    const backRest = new THREE.Mesh(backRestGeo, materials.seatFree.clone());
+    backRest.position.set(0, 0.8, -0.3);
+    chairGroup.add(backRest);
+
+    const legGeo = new THREE.BoxGeometry(0.1, 0.4, 0.1);
+    const leg1 = new THREE.Mesh(legGeo, materials.seatFree.clone());
+    leg1.position.set(0.3, 0.2, 0.3);
+    const leg2 = leg1.clone();
+    leg2.position.x *= -1;
+    const leg3 = leg1.clone();
+    leg3.position.z *= -1;
+    const leg4 = leg1.clone();
+    leg4.position.x *= -1;
+    leg4.position.z *= -1;
+    chairGroup.add(leg1, leg2, leg3, leg4);
+
+    chairGroup.traverse((c) => {
+      if (c.isMesh) {
+        c.castShadow = true;
+        c.material = materials.seatFree.clone();
+        c.material.transparent = true;
+        const originOpacity = c.material.opacity;
+        c.material.opacity = 0;
+        // 入场淡入一下，顺便证明“确实创建了”
+        gsap.to(c.material, {
+          opacity: originOpacity,
+          duration: 0.5,
+          delay: Math.random() * 0.2
+        });
+      }
+    });
+
+    unitGroup.add(chairGroup);
+
+    // --- 桌子 ---
+    const tableGeo = new THREE.BoxGeometry(1.2, 0.7, 0.8);
+    const table = new THREE.Mesh(tableGeo, materials.desk.clone());
+    table.position.set(0, 0.35, 1.0);
+    table.castShadow = true;
+    table.receiveShadow = true;
+    table.userData = { subtype: 'table' };
+    unitGroup.add(table);
+
+    // 初始根据当前 timeFilter 计算状态
+    unitGroup.userData.status = computeSeatStatusByFilter(unitGroup);
+    applySeatMaterialByStatus(unitGroup);
+
+    roomGroup.add(unitGroup);
+  });
+
+  // ✅ 学习房：书架
+  if (roomDTO.type === 'study') {
+    const shelfHeight = 2.5;
+    const shelfWidth = 0.5;
+    const shelfDepth = depth * 0.5;
+    const xOffset = width / 2 + shelfWidth / 2 + 0.3;
+    const zOffset = depth / 2 - shelfDepth / 2 - 0.3;
+
+    const leftBackShelfMat = materials.bookShelf.clone();
+    const leftBackShelfGeo = new THREE.BoxGeometry(
+      shelfWidth,
+      shelfHeight,
+      shelfDepth
+    );
+    const leftBackShelf = new THREE.Mesh(leftBackShelfGeo, leftBackShelfMat);
+    leftBackShelf.position.set(-xOffset, shelfHeight / 2, -zOffset);
+    leftBackShelf.castShadow = true;
+    leftBackShelf.receiveShadow = true;
+    leftBackShelf.userData = {
+      type: 'bookshelf',
+      side: 'left-back',
+      originalOpacity: leftBackShelf.material.opacity
+    };
+    roomGroup.add(leftBackShelf);
+
+    const rightFrontShelfMat = materials.bookShelf.clone();
+    const rightFrontShelfGeo = new THREE.BoxGeometry(
+      shelfWidth,
+      shelfHeight,
+      shelfDepth
+    );
+    const rightFrontShelf = new THREE.Mesh(
+      rightFrontShelfGeo,
+      rightFrontShelfMat
+    );
+    rightFrontShelf.position.set(xOffset, shelfHeight / 2, zOffset);
+    rightFrontShelf.castShadow = true;
+    rightFrontShelf.receiveShadow = true;
+    rightFrontShelf.userData = {
+      type: 'bookshelf',
+      side: 'right-front',
+      originalOpacity: rightFrontShelf.material.opacity
+    };
+    roomGroup.add(rightFrontShelf);
+  }
+
+  // ✅ 接待前台房间
+  if (roomDTO.type === 'info') {
+    const roomW = width;
+    const roomD = depth;
+
+    const counterGeo = new THREE.BoxGeometry(roomW * 0.8, 1.0, 1.2);
+    const counterMat = materials.desk.clone();
+    counterMat.color = new THREE.Color(0xcad7f5);
+    const counter = new THREE.Mesh(counterGeo, counterMat);
+    counter.position.set(0, 0.5, roomD * 0.1);
+    counter.castShadow = true;
+    counter.receiveShadow = true;
+    counter.userData = { type: 'infoCounter' };
+    roomGroup.add(counter);
+    // （这里下面屏幕、牌子、柱子你原来的那段也可以照搬）
+  }
+
+  parentGroup.add(roomGroup);
 };
+const api = axios.create({
+  baseURL: 'http://localhost:8080',  // <<< 改成你 Spring Boot 实际地址和端口
+  // withCredentials: true, // 如果有 cookie 之类的再开
+});
+// 然后在 fetchFloorLayout 里用这个实例：
+const fetchFloorLayout = async (floorNum) => {
+  const group = floorInteriorGroups[floorNum - 1];
+  if (!group) return;
+
+  const res = await api.get(`/building/${floorNum}`, {
+    params: {
+      date: timeFilter.date,
+      start: timeFilter.start,
+      end: timeFilter.end
+    }
+  });
+
+  const payload = res.data || {};
+  const rooms = payload.data || [];
+
+  console.log('楼层', floorNum, 'payload =', payload);
+  console.log('rooms =', rooms);
+
+  group.clear();
+  group.visible = true;
+
+  const testBox = new THREE.Mesh(
+    new THREE.BoxGeometry(1, 1, 1),
+    new THREE.MeshStandardMaterial({ color: 0xff0000 })
+  );
+  testBox.position.set(0, 0.5, 0);
+  group.add(testBox);
+
+  rooms.forEach(roomDTO => buildRoomFromDTO(group, roomDTO, floorNum));
+
+
+  // 这一句先关掉，等座位正常再开
+  // if (viewMode.value === 'floor' && currentFloor.value === floorNum) {
+  //   applyTimeFilterToCurrentFloorSeats();
+  // }
+};
+
+
 
 // --- 楼层视图：显示座位 + 处理书架透明度 + 幽灵墙 ---
 const showFloorInterior = (floorNum) => {
@@ -964,30 +925,8 @@ const showFloorInterior = (floorNum) => {
     const isTarget = index + 1 === floorNum;
     group.visible = isTarget;
     if (isTarget) {
-      group.traverse(child => {
-        if (child.userData && child.userData.type === 'seat') {
-          if (child.userData.status !== 'selected') {
-            child.userData.status = computeSeatStatusByFilter(child);
-          }
-          applySeatMaterialByStatus(child);
-
-          child.traverse(m => {
-            if (m.isMesh && m.material) {
-              m.material.transparent = true;
-              const originOpacity = m.material.opacity;
-              m.material.opacity = 0;
-              gsap.to(m.material, {
-                opacity: originOpacity,
-                duration: 0.5,
-                delay: Math.random() * 0.2
-              });
-            }
-          });
-        }
-      });
-
       // 书架透明度
-      group.traverse(child => {
+      group.traverse((child) => {
         if (child.userData && child.userData.type === 'bookshelf') {
           const mat = child.material;
           if (!mat) return;
@@ -1005,7 +944,7 @@ const showFloorInterior = (floorNum) => {
   });
 
   floorShellGroups.forEach((shell, index) => {
-    shell.visible = (index + 1 === floorNum);
+    shell.visible = index + 1 === floorNum;
   });
 };
 
@@ -1013,7 +952,7 @@ const showFloorInterior = (floorNum) => {
 let lastHovered = null;
 
 const setHighlightMaterial = (object, material) => {
-  object.traverse(child => {
+  object.traverse((child) => {
     if (child.isMesh && child.material) {
       if (!child.userData.originalMaterialColor) {
         child.userData.originalMaterialColor = child.material.color.getHex();
@@ -1026,15 +965,19 @@ const setHighlightMaterial = (object, material) => {
 const restoreOriginalMaterial = (object) => {
   if (object.userData && object.userData.type === 'seat') {
     applySeatMaterialByStatus(object);
-    object.traverse(child => {
-      if (child.isMesh && child.userData && child.userData.originalMaterialColor) {
+    object.traverse((child) => {
+      if (
+        child.isMesh &&
+        child.userData &&
+        child.userData.originalMaterialColor
+      ) {
         delete child.userData.originalMaterialColor;
       }
     });
     return;
   }
 
-  object.traverse(child => {
+  object.traverse((child) => {
     if (child.isMesh && child.userData.originalMaterialColor) {
       if (object.userData.type === 'floor') {
         child.material = materials.buildingWall.clone();
@@ -1087,17 +1030,26 @@ const onMouseMove = (event) => {
 
     if (interactiveObject && interactiveObject !== lastHovered) {
       if (lastHovered) {
-        if (lastHovered.userData.type === 'seat' && lastHovered.userData.status !== 'selected') {
+        if (
+          lastHovered.userData.type === 'seat' &&
+          lastHovered.userData.status !== 'selected'
+        ) {
           restoreOriginalMaterial(lastHovered);
         } else if (lastHovered.userData.type === 'floor') {
           lastHovered.material = materials.buildingWall.clone();
         }
       }
 
-      if (interactiveObject.userData.type === 'seat' && interactiveObject.userData.status !== 'selected') {
+      if (
+        interactiveObject.userData.type === 'seat' &&
+        interactiveObject.userData.status !== 'selected'
+      ) {
         setHighlightMaterial(interactiveObject, materials.highlight);
         selectedOutlineObjects = [interactiveObject];
-      } else if (interactiveObject.userData.type === 'floor' && viewMode.value === 'building') {
+      } else if (
+        interactiveObject.userData.type === 'floor' &&
+        viewMode.value === 'building'
+      ) {
         interactiveObject.material = materials.buildingWall.clone();
         interactiveObject.material.color.setHex(0x7b90aa);
         selectedOutlineObjects = [interactiveObject];
@@ -1119,7 +1071,8 @@ const onMouseMove = (event) => {
       let statusText = '空闲';
       if (interactiveObject.userData.status === 'partial') statusText = '半空闲';
       else if (interactiveObject.userData.status === 'occupied') statusText = '占用';
-      else if (interactiveObject.userData.status === 'selected') statusText = '已选中';
+      else if (interactiveObject.userData.status === 'selected')
+        statusText = '已选中';
 
       hoverInfo.value = `${interactiveObject.userData.id}（${statusText}）`;
     }
@@ -1128,7 +1081,10 @@ const onMouseMove = (event) => {
     tooltipStyle.top = event.clientY + 15 + 'px';
   } else {
     if (lastHovered) {
-      if (lastHovered.userData.type === 'seat' && lastHovered.userData.status !== 'selected') {
+      if (
+        lastHovered.userData.type === 'seat' &&
+        lastHovered.userData.status !== 'selected'
+      ) {
         restoreOriginalMaterial(lastHovered);
       } else if (lastHovered.userData.type === 'floor') {
         lastHovered.material = materials.buildingWall.clone();
@@ -1171,9 +1127,17 @@ const onMouseClick = (event) => {
       interactiveObject = interactiveObject.parent;
     }
 
-    if (interactiveObject && interactiveObject.userData.type === 'floor' && viewMode.value === 'building') {
+    if (
+      interactiveObject &&
+      interactiveObject.userData.type === 'floor' &&
+      viewMode.value === 'building'
+    ) {
       enterFloorView(interactiveObject.userData.floorNumber);
-    } else if (interactiveObject && interactiveObject.userData.type === 'seat' && viewMode.value === 'floor') {
+    } else if (
+      interactiveObject &&
+      interactiveObject.userData.type === 'seat' &&
+      viewMode.value === 'floor'
+    ) {
       handleSeatClick(interactiveObject);
     }
   }
@@ -1196,13 +1160,21 @@ const enterFloorView = (floorNum) => {
     targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
     libraryWidth * 0.7
   );
-  const targetLookAt = new THREE.Vector3(0, targetFloorYBase + FLOOR_LEVEL_HEIGHT / 2, 0);
+  const targetLookAt = new THREE.Vector3(
+    0,
+    targetFloorYBase + FLOOR_LEVEL_HEIGHT / 2,
+    0
+  );
 
-  floorStructureMeshes.forEach(mesh => {
+  floorStructureMeshes.forEach((mesh) => {
     if (mesh.userData.floorNumber === floorNum) {
       gsap.to(mesh.material, { opacity: 0.1, duration: 1.5 });
     } else {
-      gsap.to(mesh.position, { y: mesh.position.y + 50, duration: 1.5, ease: "power2.inOut" });
+      gsap.to(mesh.position, {
+        y: mesh.position.y + 50,
+        duration: 1.5,
+        ease: 'power2.inOut'
+      });
       gsap.to(mesh.material, { opacity: 0, duration: 1.5 });
     }
   });
@@ -1210,10 +1182,14 @@ const enterFloorView = (floorNum) => {
   if (controls) controls.enabled = false;
 
   const tl = gsap.timeline({
-    defaults: { duration: 1.8, ease: "power2.inOut" },
-    onComplete: () => {
-      floorStructureMeshes.forEach(m => { m.visible = false; });
-      showFloorInterior(floorNum);
+    defaults: { duration: 1.8, ease: 'power2.inOut' },
+    onComplete: async () => {
+      floorStructureMeshes.forEach((m) => {
+        m.visible = false;
+      });
+
+      await fetchFloorLayout(floorNum); // 先根据后端构建布局
+      showFloorInterior(floorNum); // 再控制可见性 & 书架透明
       freezeTooltip.value = false;
 
       if (controls) {
@@ -1224,12 +1200,16 @@ const enterFloorView = (floorNum) => {
     }
   });
 
-  tl.to(camera.position, {
-    x: targetCameraPos.x,
-    y: targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
-    z: targetCameraPos.z,
-    onUpdate: () => camera.lookAt(targetLookAt)
-  }, 0);
+  tl.to(
+    camera.position,
+    {
+      x: targetCameraPos.x,
+      y: targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
+      z: targetCameraPos.z,
+      onUpdate: () => camera.lookAt(targetLookAt)
+    },
+    0
+  );
 };
 
 // --- 楼层切换（左侧按钮） ---
@@ -1256,13 +1236,18 @@ const selectFloor = (floorNum) => {
     targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
     libraryWidth * 0.7
   );
-  const targetLookAt = new THREE.Vector3(0, targetFloorYBase + FLOOR_LEVEL_HEIGHT / 2, 0);
+  const targetLookAt = new THREE.Vector3(
+    0,
+    targetFloorYBase + FLOOR_LEVEL_HEIGHT / 2,
+    0
+  );
 
   if (controls) controls.enabled = false;
 
   const tl = gsap.timeline({
-    defaults: { duration: 1.2, ease: "power1.inOut" },
-    onComplete: () => {
+    defaults: { duration: 1.2, ease: 'power1.inOut' },
+    onComplete: async () => {
+      await fetchFloorLayout(floorNum);
       showFloorInterior(floorNum);
       freezeTooltip.value = false;
 
@@ -1274,12 +1259,16 @@ const selectFloor = (floorNum) => {
     }
   });
 
-  tl.to(camera.position, {
-    x: targetCameraPos.x,
-    y: targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
-    z: targetCameraPos.z,
-    onUpdate: () => camera.lookAt(targetLookAt)
-  }, 0);
+  tl.to(
+    camera.position,
+    {
+      x: targetCameraPos.x,
+      y: targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
+      z: targetCameraPos.z,
+      onUpdate: () => camera.lookAt(targetLookAt)
+    },
+    0
+  );
 };
 
 // --- 返回建筑视图 ---
@@ -1290,16 +1279,22 @@ const resetView = () => {
   selectedOutlineObjects = [];
   outlinePass.selectedObjects = selectedOutlineObjects;
 
-  floorInteriorGroups.forEach(group => { group.visible = false; });
-  floorShellGroups.forEach(shell => { shell.visible = false; });
+  floorInteriorGroups.forEach((group) => {
+    group.visible = false;
+  });
+  floorShellGroups.forEach((shell) => {
+    shell.visible = false;
+  });
 
-  floorStructureMeshes.forEach(mesh => {
+  floorStructureMeshes.forEach((mesh) => {
     mesh.visible = true;
 
     gsap.to(mesh.position, {
-      y: (mesh.userData.floorNumber - 1) * FLOOR_LEVEL_HEIGHT + FLOOR_LEVEL_HEIGHT / 2,
+      y:
+        (mesh.userData.floorNumber - 1) * FLOOR_LEVEL_HEIGHT +
+        FLOOR_LEVEL_HEIGHT / 2,
       duration: 1.2,
-      ease: "power1.out",
+      ease: 'power1.out',
       delay: 0.4
     });
 
@@ -1312,7 +1307,7 @@ const resetView = () => {
   if (controls) controls.enabled = false;
 
   const tl = gsap.timeline({
-    defaults: { duration: 1.5, ease: "power1.inOut" },
+    defaults: { duration: 1.5, ease: 'power1.inOut' },
     onComplete: () => {
       freezeTooltip.value = false;
       if (controls) {
@@ -1323,15 +1318,19 @@ const resetView = () => {
     }
   });
 
-  tl.to(camera.position, {
-    x: 55,
-    y: 45,
-    z: 55,
-    onUpdate: () => camera.lookAt(0, 5, 0)
-  }, 0);
+  tl.to(
+    camera.position,
+    {
+      x: 55,
+      y: 45,
+      z: 55,
+      onUpdate: () => camera.lookAt(0, 5, 0)
+    },
+    0
+  );
 };
 
-// --- 座位点击：根据预约状态决定行为 ---
+// --- 座位点击：暂时仍使用你原来的本地预约逻辑 ---
 const handleSeatClick = (seat) => {
   const res = seat.userData.reservation;
 
@@ -1344,9 +1343,13 @@ const handleSeatClick = (seat) => {
     return;
   }
 
-  floorInteriorGroups.forEach(group => {
+  floorInteriorGroups.forEach((group) => {
     group.traverse((child) => {
-      if (child.userData && child.userData.type === 'seat' && child.userData.status === 'selected') {
+      if (
+        child.userData &&
+        child.userData.type === 'seat' &&
+        child.userData.status === 'selected'
+      ) {
         child.userData.status = computeSeatStatusByFilter(child);
         applySeatMaterialByStatus(child);
       }
@@ -1359,7 +1362,15 @@ const handleSeatClick = (seat) => {
   gsap.fromTo(
     seat.scale,
     { x: 1, y: 1, z: 1 },
-    { x: 1.1, y: 1.1, z: 1.1, duration: 0.2, yoyo: true, repeat: 1, ease: "power1.inOut" }
+    {
+      x: 1.1,
+      y: 1.1,
+      z: 1.1,
+      duration: 0.2,
+      yoyo: true,
+      repeat: 1,
+      ease: 'power1.inOut'
+    }
   );
 
   selectedOutlineObjects = [seat];
@@ -1381,7 +1392,9 @@ const handleSeatClick = (seat) => {
 // 取消预约弹窗
 const cancelReservation = () => {
   if (selectedSeat.value) {
-    selectedSeat.value.userData.status = computeSeatStatusByFilter(selectedSeat.value);
+    selectedSeat.value.userData.status = computeSeatStatusByFilter(
+      selectedSeat.value
+    );
     applySeatMaterialByStatus(selectedSeat.value);
   }
   selectedSeat.value = null;
@@ -1390,7 +1403,7 @@ const cancelReservation = () => {
   outlinePass.selectedObjects = selectedOutlineObjects;
 };
 
-// 确认预约
+// 确认预约（当前先保持前端逻辑，不和后端联动）
 const confirmReservation = () => {
   if (!selectedSeat.value) {
     showReservationModal.value = false;
@@ -1420,14 +1433,15 @@ const confirmReservation = () => {
   seat.userData.reservation = {
     date: reservationForm.date,
     start: reservationForm.start,
-    end: reservationForm.end,
+    end: reservationForm.end
   };
 
+  // 本地先按当前筛选重新算状态
   seat.userData.status = computeSeatStatusByFilter(seat);
   applySeatMaterialByStatus(seat);
 
   alert(
-    `已为座位 ${seat.userData.id} 创建预约：\n` +
+    `已为座位 ${seat.userData.id} 创建预约（仅前端模拟）：\n` +
     `日期：${reservationForm.date}\n` +
     `时间：${reservationForm.start} - ${reservationForm.end}`
   );
@@ -1450,7 +1464,10 @@ const handleResize = () => {
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
   composer.setSize(window.innerWidth, window.innerHeight);
-  smaaPass.setSize(window.innerWidth * renderer.getPixelRatio(), window.innerHeight * renderer.getPixelRatio());
+  smaaPass.setSize(
+    window.innerWidth * renderer.getPixelRatio(),
+    window.innerHeight * renderer.getPixelRatio()
+  );
   outlinePass.setSize(window.innerWidth, window.innerHeight);
   if (controls) controls.update();
 };
@@ -1503,7 +1520,10 @@ const initDefaultTimeFilter = () => {
   const now = new Date();
   const hh = now.getHours();
   const mm = now.getMinutes();
-  nowTimeLabel.value = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+  nowTimeLabel.value = `${String(hh).padStart(2, '0')}:${String(mm).padStart(
+    2,
+    '0'
+  )}`;
 
   const slots = timeSlots.value;
   if (!slots.length) return;
@@ -1525,6 +1545,27 @@ const initDefaultTimeFilter = () => {
   timeFilter.end = slots[endIdx];
 };
 
+// 时间筛选变化时：重新从后端拉取当前楼层布局
+const applyTimeFilter = async () => {
+  const startM = parseTimeStr(timeFilter.start);
+  let endM = parseTimeStr(timeFilter.end);
+  const lastM = 22 * 60;
+
+  if (endM == null || endM > lastM) {
+    timeFilter.end = '22:00';
+    endM = lastM;
+  }
+  if (startM != null && endM != null && endM <= startM) {
+    const idx = timeSlots.value.indexOf(timeFilter.start);
+    const nextIdx = Math.min(idx + 1, timeSlots.value.length - 1);
+    timeFilter.end = timeSlots.value[nextIdx];
+  }
+
+  if (viewMode.value === 'floor') {
+    await fetchFloorLayout(currentFloor.value);
+  }
+};
+
 onMounted(() => {
   initDateAndTimeOptions();
   initTimeSlots();
@@ -1533,7 +1574,7 @@ onMounted(() => {
   initScene();
   createBuilding();
   createEnvironment();
-  createFloorDetails();
+  createEmptyFloorGroups();
 
   animate();
 
@@ -1557,7 +1598,12 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100vh;
   overflow: hidden;
-  background: radial-gradient(circle at 50% 20%, #f8fbff, #dce9f7 60%, #c9d8ef 100%);
+  background: radial-gradient(
+      circle at 50% 20%,
+      #f8fbff,
+      #dce9f7 60%,
+      #c9d8ef 100%
+  );
 }
 
 canvas {
@@ -1777,10 +1823,18 @@ canvas {
         border-radius: 50%;
         margin-right: 6px;
 
-        &.free { background: #7ec4b8; }
-        &.partial { background: #ffe9a7; }
-        &.occupied { background: #f28b82; }
-        &.selected { background: #fff59d; }
+        &.free {
+          background: #7ec4b8;
+        }
+        &.partial {
+          background: #ffe9a7;
+        }
+        &.occupied {
+          background: #f28b82;
+        }
+        &.selected {
+          background: #fff59d;
+        }
       }
     }
   }
@@ -1909,7 +1963,7 @@ canvas {
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity .2s;
+  transition: opacity 0.2s;
 }
 .fade-enter-from,
 .fade-leave-to {
@@ -1917,8 +1971,12 @@ canvas {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes fadeInUp {
