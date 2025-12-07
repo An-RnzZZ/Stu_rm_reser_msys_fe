@@ -55,10 +55,10 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/reservation',
     name: 'reservation',
-    component: () => import('../views/Reservation.vue'),
+    component: () => import('../views/RoomBooking.vue'),
     meta: {
       requiresAuth: true,
-      title: '预约自习室',
+      title: '预约座位',
       keepAlive: true
     }
   },

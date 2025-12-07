@@ -1,6 +1,7 @@
 import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
+import store from './store'   // ⬅️ 引入 Vuex store（注意路径）
 
 // Element Plus 引入
 import ElementPlus from 'element-plus'
@@ -16,6 +17,7 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 }
 
 // 使用插件
+app.use(store)     // ⬅️ 先 use(store)
 app.use(router)
 app.use(ElementPlus)
 

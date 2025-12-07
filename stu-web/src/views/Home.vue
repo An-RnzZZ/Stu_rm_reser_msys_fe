@@ -23,7 +23,7 @@
             </el-menu-item>
             <el-menu-item index="/reservation">
               <el-icon><Calendar /></el-icon>
-              <span>预约自习室</span>
+              <span>预约座位</span>
             </el-menu-item>
             <el-menu-item index="/my-reservations">
               <el-icon><Document /></el-icon>
