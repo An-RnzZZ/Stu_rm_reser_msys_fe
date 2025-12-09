@@ -1,11 +1,11 @@
 <template>
-  <div class="login-container">
+  <div class="admin-login-container">
     <div class="login-form">
       <el-card class="login-card">
         <template #header>
           <div class="login-header">
-            <h2>自习室预约系统</h2>
-            <p>请登录您的账户</p>
+            <h2>🔐 管理员登录</h2>
+            <p>自习室预约系统 - 管理后台</p>
           </div>
         </template>
 
@@ -16,31 +16,24 @@
           label-position="top"
           @submit.prevent="handleLogin"
         >
-          <el-form-item label="账号" prop="Account">
+          <el-form-item label="管理员账号" prop="adminAccount">
             <el-input
-              v-model="loginForm.userAccount"
-              placeholder="请输入账号"
+              v-model="loginForm.adminAccount"
+              placeholder="请输入管理员账号"
               size="large"
               :prefix-icon="User"
             />
           </el-form-item>
 
-          <el-form-item label="密码" prop="Password">
+          <el-form-item label="密码" prop="adminPassword">
             <el-input
-              v-model="loginForm.userPassword"
+              v-model="loginForm.adminPassword"
               type="password"
               placeholder="请输入密码"
               size="large"
               :prefix-icon="Lock"
               show-password
             />
-          </el-form-item>
-
-          <el-form-item>
-            <div class="form-item-row">
-
-              <el-link type="primary" class="forgot-link">忘记密码？</el-link>
-            </div>
           </el-form-item>
 
           <el-form-item>
@@ -51,48 +44,27 @@
               :loading="loading"
               @click="handleLogin"
             >
-              {{ loading ? '登录中...' : '登录' }}
+              {{ loading ? '登录中...' : '登录管理后台' }}
             </el-button>
           </el-form-item>
 
-          <el-divider>或者</el-divider>
+          <el-divider />
 
           <el-form-item>
-            <el-button size="large" style="width: 100%" @click="goToRegister">
-              注册新账户
+            <el-button size="large" style="width: 100%" @click="goToUserLogin">
+              返回用户登录
             </el-button>
           </el-form-item>
-
-          <!-- 在 "注册新账户" 按钮后面添加 -->
-          <el-form-item>
-            <el-button type="text" style="width: 100%; color: #7f8c8d;" @click="goToAdminLogin">
-              管理员登录
-            </el-button>
-          </el-form-item>
-
         </el-form>
       </el-card>
     </div>
 
     <!-- 底部信息 -->
     <div class="login-footer">
-      <p>© 2025 自习室预约系统 - 让学习更高效</p>
+      <p>© 2025 自习室预约系统 - 管理后台</p>
     </div>
   </div>
 </template>
-
-<style scoped>
-.form-item-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
-
-.forgot-link {
-  margin-left: auto; /* 确保链接靠右 */
-}
-</style>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
@@ -111,19 +83,18 @@ const loading = ref(false)
 
 // 表单数据
 const loginForm = reactive({
-  userAccount: '',
-  userPassword: ''
+  adminAccount: '',
+  adminPassword: ''
 })
 
 // 表单验证规则
 const loginRules: FormRules = {
-  userAccount: [
-    { required: true, message: '请输入账号', trigger: 'blur' },
-
+  adminAccount: [
+    { required: true, message: '请输入管理员账号', trigger: 'blur' }
   ],
-  userPassword: [
+  adminPassword: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 6, max: 12, message: '密码长度在 6 到 12 个字符', trigger: 'blur' }
+    { min: 6, max: 20, message: '密码长度在 6 到 20 个字符', trigger: 'blur' }
   ]
 }
 
@@ -132,74 +103,59 @@ const handleLogin = async () => {
   if (!loginFormRef.value) return
 
   // 表单验证
-  const valid = await loginFormRef.value.validate()
+  const valid = await loginFormRef.value.validate().catch(() => false)
   if (!valid) return
 
   loading.value = true
 
   try {
     // 发送 POST 请求到后端进行登录验证
-    const response = await fetch('http://localhost:8080/user/login', {
+    const response = await fetch('http://localhost:8080/admin/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        userAccount: loginForm.userAccount,
-        userPassword: loginForm.userPassword
+        adminAccount: loginForm.adminAccount,
+        adminPassword: loginForm.adminPassword
       })
-    });
+    })
 
     // 解析后端响应
-    const result = await response.json();
+    const result = await response.json()
 
     if (result.code === 200) {
-      // 登录成功，保存状态，跳转到首页
-      sessionStorage.setItem('isLoggedIn', 'true');
-      sessionStorage.setItem('userAccount', loginForm.userAccount);
-
-      ElMessage.success(result.message || '登录成功！');
-      router.push('/home');
-    } else {
-      // 登录失败，显示错误信息
-      if (result.data && typeof result.data === 'object') {
-        // 循环展示每个字段的错误信息
-        for (const field in result.data) {
-          if (result.data.hasOwnProperty(field)) {
-            ElMessage.error(result.data[field]); // 显示每个字段的错误信息
-          }
-        }
-      } else {
-        // 通用错误信息
-        ElMessage.error(result.message || '登录失败，用户名或密码错误');
+      // 登录成功，保存状态
+      sessionStorage.setItem('isAdminLoggedIn', 'true')
+      sessionStorage.setItem('adminAccount', loginForm.adminAccount)
+      if (result.data) {
+        sessionStorage.setItem('adminId', result.data.adminId)
+        sessionStorage.setItem('adminName', result.data.adminName || loginForm.adminAccount)
       }
+
+      ElMessage.success('登录成功！')
+      router.push('/admin/dashboard')
+    } else {
+      ElMessage.error(result.message || '登录失败，账号或密码错误')
     }
   } catch (error) {
-    console.error('登录请求失败:', error);
-    ElMessage.error('登录失败，请检查网络连接');
+    console.error('登录请求失败:', error)
+    ElMessage.error('登录失败，请检查网络连接')
   } finally {
-    loading.value = false;
+    loading.value = false
   }
-
 }
 
-// 管理员登录
-const goToAdminLogin = () => {
-  router.push('/admin/login')
+// 返回用户登录
+const goToUserLogin = () => {
+  router.push('/login')
 }
-
-
-// 注册处理
-const goToRegister = () => {
-  router.push('/register')
-}
-
 </script>
 
 <style scoped>
-.login-container {
+.admin-login-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #1e3a5f 100%);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -209,13 +165,13 @@ const goToRegister = () => {
 
 .login-form {
   width: 100%;
-  max-width: 400px;
+  max-width: 420px;
   margin-bottom: 20px;
 }
 
 .login-card {
   border-radius: 12px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
 }
 
 .login-header {
@@ -225,7 +181,7 @@ const goToRegister = () => {
 
 .login-header h2 {
   margin: 0 0 8px 0;
-  color: #2c3e50;
+  color: #1e3a5f;
   font-size: 24px;
 }
 
@@ -244,7 +200,18 @@ const goToRegister = () => {
   border-radius: 8px;
 }
 
-:deep(.el-button) {
+:deep(.el-button--primary) {
+  background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+}
+
+:deep(.el-button--primary:hover) {
+  background: linear-gradient(135deg, #2d5a87 0%, #3d7ab7 100%);
+}
+
+:deep(.el-button:not(.el-button--primary)) {
   border-radius: 8px;
   font-weight: 600;
 }
