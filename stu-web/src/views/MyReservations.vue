@@ -7,19 +7,23 @@
           <div class="header-actions">
             <el-date-picker
               v-model="filterDate"
-              type="daterange"
-              range-separator="至"
-              start-placeholder="开始日期"
-              end-placeholder="结束日期"
-              style="width: 240px; margin-right: 16px;"
+              type="date"
+              placeholder="选择日期"
+              format="YYYY-MM-DD"
+              value-format="YYYY-MM-DD"
+              clearable
+              style="width: 150px; margin-right: 12px;"
+              @change="handleFilter"
             />
-            <el-select v-model="filterStatus" placeholder="全部状态" style="width: 120px;">
+            <el-select v-model="filterStatus" placeholder="全部状态" style="width: 120px;" @change="handleFilter">
               <el-option label="全部" value="" />
-              <el-option label="已预约" value="RESERVED" />
-              <el-option label="使用中" value="IN_USE" />
-              <el-option label="已完成" value="COMPLETED" />
-              <el-option label="已取消" value="CANCELLED" />
+              <el-option label="今日" value="today" />
+              <el-option label="未来" value="future" />
+              <el-option label="已过期" value="past" />
             </el-select>
+            <el-button type="primary" :icon="Refresh" style="margin-left: 12px;" @click="loadReservations">
+              刷新
+            </el-button>
           </div>
         </div>
       </template>
@@ -28,53 +32,52 @@
         :data="filteredReservations"
         v-loading="loading"
         style="width: 100%"
-        :default-sort="{ prop: 'reservationTime', order: 'descending' }"
+        empty-text="暂无预约记录"
       >
-        <el-table-column prop="id" label="预约ID" width="100" />
-        <el-table-column prop="roomName" label="自习室" width="150" />
-        <el-table-column prop="date" label="日期" width="120">
+        <el-table-column prop="resvId" label="预约ID" width="100" />
+        <el-table-column label="自习室" width="150">
           <template #default="{ row }">
-            {{ formatDate(row.date) }}
+            {{ row.seat?.room?.roomName || '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="timeSlot" label="时间段" width="180" />
-        <el-table-column prop="seatNumber" label="座位号" width="100" />
-        <el-table-column prop="status" label="状态" width="120">
+        <el-table-column prop="resvDate" label="日期" width="120" sortable />
+        <el-table-column label="时间段" width="150">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)">
-              {{ getStatusText(row.status) }}
+            {{ formatTime(row.resvstartTime) }} - {{ formatTime(row.resvendTime) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="座位号" width="100">
+          <template #default="{ row }">
+            {{ row.seat?.seatNumber || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="getStatusType(row.resvDate)">
+              {{ getStatusText(row.resvDate) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="createTime" label="预约时间" width="180">
+        <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
-            {{ formatDateTime(row.createTime) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="200" fixed="right">
-          <template #default="{ row }">
-            <el-button
-              v-if="row.status === 'RESERVED'"
-              type="danger"
-              size="small"
-              @click="cancelReservation(row)"
-            >
-              取消预约
+            <el-button type="primary" size="small" @click="viewDetails(row)">
+              详情
             </el-button>
-            <el-button
-              v-if="row.status === 'RESERVED'"
-              type="primary"
-              size="small"
-              @click="viewDetails(row)"
+            <el-popconfirm
+              v-if="canCancel(row.resvDate)"
+              title="确定要取消这个预约吗？"
+              confirm-button-text="确定"
+              cancel-button-text="取消"
+              @confirm="cancelReservation(row)"
             >
-              查看详情
-            </el-button>
-            <span v-else class="no-action">--</span>
+              <template #reference>
+                <el-button type="danger" size="small">取消</el-button>
+              </template>
+            </el-popconfirm>
           </template>
         </el-table-column>
       </el-table>
 
-      <!-- 分页 -->
       <div class="pagination-container">
         <el-pagination
           v-model:current-page="currentPage"
@@ -87,213 +90,197 @@
         />
       </div>
 
-      <!-- 统计信息 -->
       <el-row :gutter="20" class="stats-row">
         <el-col :span="6">
           <el-statistic title="总预约次数" :value="stats.total" />
         </el-col>
         <el-col :span="6">
-          <el-statistic title="进行中" :value="stats.active" />
+          <el-statistic title="今日预约" :value="stats.today" />
         </el-col>
         <el-col :span="6">
-          <el-statistic title="已完成" :value="stats.completed" />
+          <el-statistic title="未来预约" :value="stats.future" />
         </el-col>
         <el-col :span="6">
-          <el-statistic title="取消率" :value="stats.cancelRate" suffix="%" />
+          <el-statistic title="已完成" :value="stats.past" />
         </el-col>
       </el-row>
     </el-card>
 
-    <!-- 详情对话框 -->
     <el-dialog v-model="detailDialogVisible" title="预约详情" width="500px">
       <div v-if="selectedReservation" class="detail-content">
         <el-descriptions :column="1" border>
-          <el-descriptions-item label="预约ID">
-            {{ selectedReservation.id }}
-          </el-descriptions-item>
-          <el-descriptions-item label="自习室">
-            {{ selectedReservation.roomName }}
-          </el-descriptions-item>
-          <el-descriptions-item label="预约时间">
-            {{ formatDate(selectedReservation.date) }} {{ selectedReservation.timeSlot }}
-          </el-descriptions-item>
-          <el-descriptions-item label="座位号">
-            {{ selectedReservation.seatNumber || '未分配' }}
+          <el-descriptions-item label="预约ID">{{ selectedReservation.resvId }}</el-descriptions-item>
+          <el-descriptions-item label="自习室">{{ selectedReservation.seat?.room?.roomName || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="座位号">{{ selectedReservation.seat?.seatNumber || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="预约日期">{{ selectedReservation.resvDate }}</el-descriptions-item>
+          <el-descriptions-item label="时间段">
+            {{ formatTime(selectedReservation.resvstartTime) }} - {{ formatTime(selectedReservation.resvendTime) }}
           </el-descriptions-item>
           <el-descriptions-item label="状态">
-            <el-tag :type="getStatusType(selectedReservation.status)">
-              {{ getStatusText(selectedReservation.status) }}
+            <el-tag :type="getStatusType(selectedReservation.resvDate)">
+              {{ getStatusText(selectedReservation.resvDate) }}
             </el-tag>
-          </el-descriptions-item>
-          <el-descriptions-item label="备注">
-            {{ selectedReservation.remark || '无' }}
-          </el-descriptions-item>
-          <el-descriptions-item label="创建时间">
-            {{ formatDateTime(selectedReservation.createTime) }}
           </el-descriptions-item>
         </el-descriptions>
       </div>
+      <template #footer>
+        <el-button @click="detailDialogVisible = false">关闭</el-button>
+      </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import type { Reservation } from '@/types/reservation'
+import { ElMessage } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
+
+interface Reservation {
+  resvId: number
+  resvDate: string
+  resvstartTime: string
+  resvendTime: string
+  seat?: {
+    seatId: number
+    seatNumber: string
+    room?: {
+      roomId: number
+      roomName: string
+    }
+  }
+}
 
 const loading = ref(false)
 const detailDialogVisible = ref(false)
 const selectedReservation = ref<Reservation | null>(null)
-
-// 筛选条件
-const filterDate = ref<[Date, Date] | null>(null)
+const filterDate = ref('')
 const filterStatus = ref('')
-
-// 分页
 const currentPage = ref(1)
 const pageSize = ref(10)
 const totalReservations = ref(0)
+const reservations = ref<Reservation[]>([])
 
-// 统计信息
 const stats = reactive({
   total: 0,
-  active: 0,
-  completed: 0,
-  cancelRate: 0
+  today: 0,
+  future: 0,
+  past: 0
 })
 
-// 模拟数据
-const reservations = ref<Reservation[]>([
-  { id: 1, roomName: '静思阁', date: new Date(), timeSlot: '09:00-12:00', seatNumber: 'A12', status: 'RESERVED', remark: '需要电源插座', createTime: new Date('2024-01-15 08:30:00') },
-  { id: 2, roomName: '致远轩', date: new Date(Date.now() + 86400000), timeSlot: '14:00-16:00', seatNumber: 'B05', status: 'RESERVED', remark: '', createTime: new Date('2024-01-14 15:20:00') },
-  { id: 3, roomName: '明德堂', date: new Date('2024-01-10'), timeSlot: '19:00-21:00', seatNumber: 'C08', status: 'COMPLETED', remark: '', createTime: new Date('2024-01-09 10:15:00') },
-  { id: 4, roomName: '博学厅', date: new Date('2024-01-12'), timeSlot: '10:00-12:00', seatNumber: 'D03', status: 'CANCELLED', remark: '时间冲突', createTime: new Date('2024-01-11 09:45:00') },
-  { id: 5, roomName: '创新空间', date: new Date(), timeSlot: '15:00-17:00', seatNumber: 'E11', status: 'IN_USE', remark: '小组讨论', createTime: new Date('2024-01-13 14:20:00') }
-])
+const getTodayDate = () => new Date().toISOString().split('T')[0]
 
-// 计算属性：筛选后的预约记录
-const filteredReservations = computed(() => {
-  let result = reservations.value
+const getCurrentUserId = () => sessionStorage.getItem('userId')
 
-  // 按状态筛选
-  if (filterStatus.value) {
-    result = result.filter(item => item.status === filterStatus.value)
+// 加载预约数据
+const loadReservations = async () => {
+  const userId = getCurrentUserId()
+
+  if (!userId) {
+    ElMessage.warning('请先登录')
+    return
   }
 
-  // 按日期筛选
-  if (filterDate.value) {
-    const [start, end] = filterDate.value
-    result = result.filter(item => {
-      const itemDate = new Date(item.date)
-      return itemDate >= start && itemDate <= end
-    })
-  }
-
-  // 分页
-  totalReservations.value = result.length
-  const start = (currentPage.value - 1) * pageSize.value
-  const end = start + pageSize.value
-  return result.slice(start, end)
-})
-
-// 状态类型映射
-const getStatusType = (status: string) => {
-  const typeMap: Record<string, string> = {
-    'RESERVED': 'primary',
-    'IN_USE': 'warning',
-    'COMPLETED': 'success',
-    'CANCELLED': 'info'
-  }
-  return typeMap[status] || 'info'
-}
-
-// 状态文本映射
-const getStatusText = (status: string) => {
-  const textMap: Record<string, string> = {
-    'RESERVED': '已预约',
-    'IN_USE': '使用中',
-    'COMPLETED': '已完成',
-    'CANCELLED': '已取消'
-  }
-  return textMap[status] || status
-}
-
-// 格式化日期
-const formatDate = (date: Date) => {
-  return date.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' })
-}
-
-// 格式化日期时间
-const formatDateTime = (date: Date) => {
-  return date.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
-}
-
-// 取消预约
-const cancelReservation = async (reservation: Reservation) => {
+  loading.value = true
   try {
-    await ElMessageBox.confirm(
-      `确定要取消预约吗？\n自习室：${reservation.roomName}\n时间：${formatDate(reservation.date)} ${reservation.timeSlot}`,
-      '取消确认',
-      {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
-      }
-    )
+    const response = await fetch(`http://localhost:8080/admin/reservations/user/${userId}`)
+    const result = await response.json()
 
-    // 模拟API调用
-    loading.value = true
-    await new Promise(resolve => setTimeout(resolve, 1000))
-
-    // 更新状态
-    reservation.status = 'CANCELLED'
-    ElMessage.success('预约已取消')
-    updateStats()
-  } catch {
-    // 用户取消操作
+    if (result.code === 200) {
+      reservations.value = result.data || []
+      calculateStats()
+      ElMessage.success('数据加载成功')
+    } else {
+      ElMessage.error(result.message || '加载失败')
+    }
+  } catch (error) {
+    console.error('加载预约数据失败:', error)
+    ElMessage.error('加载失败，请检查网络')
   } finally {
     loading.value = false
   }
 }
 
-// 查看详情
+const calculateStats = () => {
+  const today = getTodayDate()
+  stats.total = reservations.value.length
+  stats.today = reservations.value.filter(r => r.resvDate === today).length
+  stats.future = reservations.value.filter(r => r.resvDate > today).length
+  stats.past = reservations.value.filter(r => r.resvDate < today).length
+}
+
+const filteredReservations = computed(() => {
+  let result = [...reservations.value]
+  const today = getTodayDate()
+
+  if (filterDate.value) {
+    result = result.filter(item => item.resvDate === filterDate.value)
+  }
+
+  if (filterStatus.value) {
+    switch (filterStatus.value) {
+      case 'today': result = result.filter(item => item.resvDate === today); break
+      case 'future': result = result.filter(item => item.resvDate > today); break
+      case 'past': result = result.filter(item => item.resvDate < today); break
+    }
+  }
+
+  result.sort((a, b) => b.resvDate.localeCompare(a.resvDate))
+  totalReservations.value = result.length
+
+  const start = (currentPage.value - 1) * pageSize.value
+  return result.slice(start, start + pageSize.value)
+})
+
+const formatTime = (time: string) => time?.length > 5 ? time.substring(0, 5) : (time || '-')
+
+const getStatusType = (dateStr: string) => {
+  const today = getTodayDate()
+  if (dateStr === today) return 'primary'
+  if (dateStr > today) return 'success'
+  return 'info'
+}
+
+const getStatusText = (dateStr: string) => {
+  const today = getTodayDate()
+  if (dateStr === today) return '今日'
+  if (dateStr > today) return '预约中'
+  return '已完成'
+}
+
+const canCancel = (dateStr: string) => dateStr >= getTodayDate()
+
+const cancelReservation = async (reservation: Reservation) => {
+  try {
+    loading.value = true
+    const response = await fetch(`http://localhost:8080/reservation/${reservation.resvId}`, {
+      method: 'DELETE'
+    })
+    const result = await response.json()
+
+    if (result.code === 200) {
+      ElMessage.success('预约已取消')
+      await loadReservations()
+    } else {
+      ElMessage.error(result.message || '取消失败')
+    }
+  } catch (error) {
+    ElMessage.error('取消失败，请重试')
+  } finally {
+    loading.value = false
+  }
+}
+
 const viewDetails = (reservation: Reservation) => {
   selectedReservation.value = reservation
   detailDialogVisible.value = true
 }
 
-// 更新统计信息
-const updateStats = () => {
-  const total = reservations.value.length
-  const active = reservations.value.filter(r => r.status === 'RESERVED' || r.status === 'IN_USE').length
-  const completed = reservations.value.filter(r => r.status === 'COMPLETED').length
-  const cancelled = reservations.value.filter(r => r.status === 'CANCELLED').length
-
-  stats.total = total
-  stats.active = active
-  stats.completed = completed
-  stats.cancelRate = total > 0 ? Math.round((cancelled / total) * 100) : 0
-}
-
-// 分页处理
-const handleSizeChange = (val: number) => {
-  pageSize.value = val
-  currentPage.value = 1
-}
-
-const handleCurrentChange = (val: number) => {
-  currentPage.value = val
-}
+const handleFilter = () => { currentPage.value = 1 }
+const handleSizeChange = () => { currentPage.value = 1 }
+const handleCurrentChange = () => {}
 
 onMounted(() => {
-  updateStats()
+  loadReservations()
 })
 </script>
 
@@ -320,6 +307,8 @@ onMounted(() => {
 .header-actions {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .pagination-container {
@@ -332,16 +321,21 @@ onMounted(() => {
   margin-top: 30px;
 }
 
-.no-action {
-  color: #909399;
-  font-size: 14px;
-}
-
 .detail-content {
   line-height: 1.8;
 }
 
 :deep(.el-descriptions__label) {
   width: 100px;
+}
+
+@media (max-width: 768px) {
+  .card-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .header-actions {
+    width: 100%;
+  }
 }
 </style>
