@@ -27,9 +27,9 @@
           <h3>座位时间筛选</h3>
           <p class="current-time">当前时间：{{ nowTimeLabel }}</p>
 
-          <div class="filter-row">
+          <div class="form-row">
             <label>日期</label>
-            <select v-model="timeFilter.date" @change="applyTimeFilter">
+            <select v-model="reservationForm.date" @change="updateTimeBar">
               <option v-for="d in dateOptions" :key="d.value" :value="d.value">
                 {{ d.label }}
               </option>
@@ -106,9 +106,69 @@
           当前座位：<strong>{{ reservationSeatId }}</strong>
         </p>
 
+        <!-- 添加时间条 -->
+        <div class="time-bar-container" v-if="selectedSeat">
+          <p class="time-bar-title">
+            座位占用情况（{{ reservationForm.date }} {{ timeFilter.start || '08:00' }} - {{ timeFilter.end || '22:00' }}）
+          </p>
+          <div class="time-bar">
+            <!-- 时间刻度 -->
+            <div class="time-ticks">
+          <span v-for="tick in timeTicks" :key="tick" class="time-tick">
+            {{ tick }}
+          </span>
+            </div>
+
+            <!-- 时间条本身 -->
+            <div class="time-bar-slots">
+              <div
+                v-for="slot in timeBarSlots"
+                :key="slot.id"
+                class="time-slot"
+                :class="{
+              'occupied': slot.occupied,
+              'free': !slot.occupied && !slot.selected,
+              'selected': slot.selected
+            }"
+                :style="{
+              width: slot.width + '%',
+              left: slot.position + '%'
+            }"
+                :title="`${slot.start} - ${slot.end}: ${slot.occupied ? '已被预约' : '空闲'}`"
+              >
+              </div>
+            </div>
+
+            <!-- 用户选择的时间段指示器 -->
+            <div
+              v-if="userSelectionStart !== null && userSelectionEnd !== null"
+              class="user-selection-indicator"
+              :style="{
+            left: userSelectionStart + '%',
+            width: (userSelectionEnd - userSelectionStart) + '%'
+          }"
+            >
+              <div class="selection-label">您的选择</div>
+            </div>
+          </div>
+
+          <!-- 时间条图例 -->
+          <div class="time-bar-legend">
+            <div class="legend-item">
+              <span class="color-dot free"></span>空闲
+            </div>
+            <div class="legend-item">
+              <span class="color-dot occupied"></span>已被预约
+            </div>
+            <div class="legend-item">
+              <span class="color-dot selected"></span>您选择的时间
+            </div>
+          </div>
+        </div>
+
         <div class="form-row">
           <label>日期</label>
-          <select v-model="reservationForm.date">
+          <select v-model="reservationForm.date" @change="updateTimeBar">
             <option v-for="d in dateOptions" :key="d.value" :value="d.value">
               {{ d.label }}
             </option>
@@ -118,7 +178,7 @@
         <div class="form-row time-row">
           <div>
             <label>开始时间</label>
-            <select v-model="reservationForm.start">
+            <select v-model="reservationForm.start" @change="updateUserSelection">
               <option v-for="t in timeSlots" :key="'start-' + t" :value="t">
                 {{ t }}
               </option>
@@ -126,7 +186,7 @@
           </div>
           <div>
             <label>结束时间（最晚 22:00）</label>
-            <select v-model="reservationForm.end">
+            <select v-model="reservationForm.end" @change="updateUserSelection">
               <option v-for="t in timeSlots" :key="'end-' + t" :value="t">
                 {{ t }}
               </option>
@@ -180,6 +240,206 @@ const reservationForm = reactive({
   start: '',
   end: ''
 });
+
+// 时间条相关状态
+const timeBarSlots = ref([]); // 时间条上的时间段
+const timeTicks = ref(['08:00', '12:00', '16:00', '20:00', '22:00']); // 时间刻度
+const userSelectionStart = ref(null); // 用户选择开始时间在时间条上的位置百分比
+const userSelectionEnd = ref(null); // 用户选择结束时间在时间条上的位置百分比
+// --- 时间条相关函数 ---
+
+// 更新时间条显示
+const updateTimeBar = () => {
+  if (!selectedSeat.value) return;
+
+  const seat = selectedSeat.value;
+  const reservations = seat.userData.resvSummary || [];
+
+  // 修改这里：使用左侧时间筛选面板的时间，而不是固定的 08:00-22:00
+  const dayStart = parseTimeStr(timeFilter.start) || 8 * 60; // 默认 08:00
+  const dayEnd = parseTimeStr(timeFilter.end) || 22 * 60; // 默认 22:00
+  const dayDuration = dayEnd - dayStart; // 动态计算时长
+
+  // 筛选出选定日期的预约
+  const dateReservations = reservations.filter(res => {
+    // 注意：这里假设resvSummary中的日期格式与reservationForm.date相同
+    // 如果格式不同，需要调整
+    return true; // 暂时显示所有预约，需要根据实际数据调整
+  });
+
+  // 生成时间槽
+  const slots = [];
+
+  // 如果有预约，按预约时间段划分
+  if (dateReservations.length > 0) {
+    // 按开始时间排序
+    dateReservations.sort((a, b) => parseTimeStr(a.start) - parseTimeStr(b.start));
+
+    // 添加第一个空闲段（从筛选的开始时间到第一个预约开始）
+    const firstReservation = dateReservations[0];
+    const firstStart = parseTimeStr(firstReservation.start);
+    if (firstStart > dayStart) {
+      slots.push({
+        id: 'free-1',
+        start: timeFilter.start || '08:00', // 使用筛选的开始时间
+        end: firstReservation.start,
+        occupied: false,
+        startMin: dayStart,
+        endMin: firstStart,
+        width: ((firstStart - dayStart) / dayDuration) * 100,
+        position: 0
+      });
+    }
+
+    // 添加预约时间段和之间的空闲段
+    for (let i = 0; i < dateReservations.length; i++) {
+      const res = dateReservations[i];
+      const resStart = parseTimeStr(res.start);
+      const resEnd = parseTimeStr(res.end);
+
+      // 预约时间段
+      slots.push({
+        id: `occupied-${i}`,
+        start: res.start,
+        end: res.end,
+        occupied: true,
+        startMin: resStart,
+        endMin: resEnd,
+        width: ((resEnd - resStart) / dayDuration) * 100,
+        position: ((resStart - dayStart) / dayDuration) * 100
+      });
+
+      // 预约后的空闲段（如果不是最后一个预约）
+      if (i < dateReservations.length - 1) {
+        const nextRes = dateReservations[i + 1];
+        const nextStart = parseTimeStr(nextRes.start);
+
+        if (resEnd < nextStart) {
+          slots.push({
+            id: `free-${i + 2}`,
+            start: res.end,
+            end: nextRes.start,
+            occupied: false,
+            startMin: resEnd,
+            endMin: nextStart,
+            width: ((nextStart - resEnd) / dayDuration) * 100,
+            position: ((resEnd - dayStart) / dayDuration) * 100
+          });
+        }
+      }
+    }
+
+    // 添加最后一个预约后的空闲段
+    const lastReservation = dateReservations[dateReservations.length - 1];
+    const lastEnd = parseTimeStr(lastReservation.end);
+    if (lastEnd < dayEnd) {
+      slots.push({
+        id: `free-last`,
+        start: lastReservation.end,
+        end: timeFilter.end || '22:00', // 使用筛选的结束时间
+        occupied: false,
+        startMin: lastEnd,
+        endMin: dayEnd,
+        width: ((dayEnd - lastEnd) / dayDuration) * 100,
+        position: ((lastEnd - dayStart) / dayDuration) * 100
+      });
+    }
+  } else {
+    // 没有预约，整个时间段都是空闲的
+    slots.push({
+      id: 'free-all',
+      start: timeFilter.start || '08:00', // 使用筛选的开始时间
+      end: timeFilter.end || '22:00',     // 使用筛选的结束时间
+      occupied: false,
+      startMin: dayStart,
+      endMin: dayEnd,
+      width: 100,
+      position: 0
+    });
+  }
+
+  timeBarSlots.value = slots;
+
+  // 更新时间刻度：需要根据动态的时间范围更新
+  updateTimeTicks(dayStart, dayEnd);
+
+  // 更新用户选择的位置
+  updateUserSelection();
+};
+
+// 新增：更新时间刻度（根据动态的时间范围）
+const updateTimeTicks = (startMin, endMin) => {
+  const duration = endMin - startMin;
+  const ticks = [];
+
+  // 将分钟数转换为时间字符串
+  const formatTime = (minutes) => {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  };
+
+  // 根据时长决定显示几个刻度
+  if (duration <= 60) { // 1小时以内：显示开始和结束
+    ticks.push(formatTime(startMin));
+    ticks.push(formatTime(endMin));
+  } else if (duration <= 240) { // 4小时以内：显示3个刻度
+    const mid = Math.round((startMin + endMin) / 2);
+    ticks.push(formatTime(startMin));
+    ticks.push(formatTime(mid));
+    ticks.push(formatTime(endMin));
+  } else { // 4小时以上：显示5个刻度
+    const interval = duration / 4;
+    ticks.push(formatTime(startMin));
+    ticks.push(formatTime(startMin + interval));
+    ticks.push(formatTime(startMin + interval * 2));
+    ticks.push(formatTime(startMin + interval * 3));
+    ticks.push(formatTime(endMin));
+  }
+
+  timeTicks.value = ticks;
+};
+
+// 更新用户选择的时间段在时间条上的位置
+// 更新用户选择的时间段在时间条上的位置
+const updateUserSelection = () => {
+  if (!reservationForm.start || !reservationForm.end) return;
+
+  // 使用时间条的实际范围（即筛选的时间范围）
+  const dayStart = parseTimeStr(timeFilter.start) || 8 * 60;
+  const dayEnd = parseTimeStr(timeFilter.end) || 22 * 60;
+  const dayDuration = dayEnd - dayStart;
+
+  const startMin = parseTimeStr(reservationForm.start);
+  const endMin = parseTimeStr(reservationForm.end);
+
+  if (startMin !== null && endMin !== null) {
+    userSelectionStart.value = ((startMin - dayStart) / dayDuration) * 100;
+    userSelectionEnd.value = ((endMin - dayStart) / dayDuration) * 100;
+
+    // 更新时间槽的选中状态
+    timeBarSlots.value.forEach(slot => {
+      slot.selected = false;
+
+      // 检查这个时间段是否与用户选择的时间段有重叠
+      if (startMin < slot.endMin && endMin > slot.startMin) {
+        // 计算重叠部分
+        const overlapStart = Math.max(startMin, slot.startMin);
+        const overlapEnd = Math.min(endMin, slot.endMin);
+
+        // 如果完全在用户选择的时间内，标记为选中
+        if (overlapStart === slot.startMin && overlapEnd === slot.endMin) {
+          slot.selected = true;
+        }
+      }
+    });
+  }
+};
+
+// 检查时间段是否重叠
+const checkTimeOverlap = (start1, end1, start2, end2) => {
+  return start1 < end2 && end1 > start2;
+};
 
 // 楼层时间筛选状态
 const timeFilter = reactive({
@@ -1298,6 +1558,7 @@ const resetView = () => {
 };
 
 // --- 座位点击：暂时仍使用你原来的本地预约逻辑 ---
+// --- 座位点击：暂时仍使用你原来的本地预约逻辑 ---
 const handleSeatClick = (seat) => {
   const res = seat.userData.reservation;
 
@@ -1352,6 +1613,9 @@ const handleSeatClick = (seat) => {
   const idx = timeSlots.value.indexOf(reservationForm.start);
   const endIdx = Math.min(idx + 2, timeSlots.value.length - 1); // 默认加 1 小时
   reservationForm.end = timeSlots.value[endIdx] || '22:00';
+
+  // 初始化时间条
+  updateTimeBar();
 
   showReservationModal.value = true;
 };
@@ -2035,4 +2299,198 @@ canvas {
     transform: translate3d(0, 0, 0);
   }
 }
+/* 时间条样式 */
+.time-bar-container {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: rgba(249, 251, 255, 0.9);
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+}
+
+.time-bar-title {
+  margin: 0 0 10px 0;
+  font-size: 0.9rem;
+  color: #4b5563;
+  font-weight: 600;
+}
+
+.time-bar {
+  position: relative;
+  height: 60px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.time-ticks {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 0;
+  border-bottom: 1px solid #e2e8f0;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.time-tick {
+  font-size: 0.7rem;
+  color: #64748b;
+  position: relative;
+  transform: translateX(-50%);
+}
+
+.time-tick:first-child {
+  transform: translateX(0);
+}
+
+.time-tick:last-child {
+  transform: translateX(-100%);
+}
+
+.time-bar-slots {
+  position: absolute;
+  top: 25px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.time-slot {
+  position: absolute;
+  height: 30px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.time-slot.free {
+  background: linear-gradient(135deg, #86efac, #4ade80);
+  border: 1px solid #22c55e;
+}
+
+.time-slot.occupied {
+  background: linear-gradient(135deg, #fca5a5, #ef4444);
+  border: 1px solid #dc2626;
+}
+
+.time-slot.selected {
+  background: linear-gradient(135deg, #93c5fd, #3b82f6);
+  border: 1px solid #2563eb;
+  z-index: 2;
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
+}
+
+.time-slot:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+/* 用户选择指示器 */
+.user-selection-indicator {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: rgba(59, 130, 246, 0.15);
+  border: 2px dashed #3b82f6;
+  border-radius: 4px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.selection-label {
+  position: absolute;
+  top: -20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #3b82f6;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.selection-label::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid #3b82f6;
+}
+
+/* 时间条图例 */
+.time-bar-legend {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+  color: #4b5563;
+}
+
+.color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-right: 6px;
+  display: inline-block;
+}
+
+.color-dot.free {
+  background: linear-gradient(135deg, #86efac, #4ade80);
+}
+
+.color-dot.occupied {
+  background: linear-gradient(135deg, #fca5a5, #ef4444);
+}
+
+.color-dot.selected {
+  background: linear-gradient(135deg, #93c5fd, #3b82f6);
+}
+
+/* 弹窗宽度调整 */
+.reservation-dialog {
+  width: 500px; /* 增加宽度以容纳时间条 */
+  max-width: 90vw;
+}
+
+/* 响应式调整 */
+@media (max-width: 600px) {
+  .time-bar {
+    height: 50px;
+  }
+
+  .time-tick {
+    font-size: 0.6rem;
+  }
+
+  .time-slot {
+    height: 25px;
+    font-size: 0.6rem;
+  }
+
+  .time-bar-legend {
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+  }
+}
+
 </style>
