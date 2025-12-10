@@ -144,7 +144,7 @@ component: () => import('../views/Login.vue'),
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior(_to, _from, savedPosition) {
+  scrollBehavior(to, from, savedPosition) {
     if (savedPosition) {
       return savedPosition
     } else {
@@ -153,7 +153,7 @@ const router = createRouter({
   }
 })
 
-router.beforeEach((_to,_from, next) => {
+router.beforeEach((to,from, next) => {
   const isUserLoggedIn = sessionStorage.getItem('isLoggedIn')
   const isAdminLoggedIn = sessionStorage.getItem('isAdminLoggedIn')
 
