@@ -205,7 +205,7 @@
   </div>
 </template>
 
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, reactive } from 'vue';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
@@ -434,11 +434,6 @@ const updateUserSelection = () => {
       }
     });
   }
-};
-
-// 检查时间段是否重叠
-const checkTimeOverlap = (start1, end1, start2, end2) => {
-  return start1 < end2 && end1 > start2;
 };
 
 
@@ -828,25 +823,7 @@ const createEnvironment = () => {
 
 };
 
-const createTree = () => {
-  const treeGroup = new THREE.Group();
 
-  const trunkGeo = new THREE.CylinderGeometry(0.25, 0.35, 2.2, 8);
-  const trunk = new THREE.Mesh(trunkGeo, materials.treeTrunk);
-  trunk.position.y = 1.1;
-  trunk.castShadow = true;
-  trunk.receiveShadow = true;
-  treeGroup.add(trunk);
-
-  const crownGeo = new THREE.SphereGeometry(1.1, 12, 12);
-  const crown = new THREE.Mesh(crownGeo, materials.treeLeaf);
-  crown.position.y = 2.7;
-  crown.castShadow = true;
-  crown.receiveShadow = true;
-  treeGroup.add(crown);
-
-  return treeGroup;
-};
 
 // --- 每层创建一个空的内部 group，内容全部由后端填充 ---
 const createEmptyFloorGroups = () => {
