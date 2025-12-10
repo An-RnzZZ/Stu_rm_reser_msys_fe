@@ -33,10 +33,7 @@
               <el-icon><Check /></el-icon>
               <span>签到签退</span>
             </el-menu-item>
-            <el-menu-item index="/study-rooms">
-              <el-icon><School /></el-icon>
-              <span>自习室管理</span>
-            </el-menu-item>
+
           </el-menu>
         </el-aside>
 

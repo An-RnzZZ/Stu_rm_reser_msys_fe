@@ -75,16 +75,6 @@ component: () => import('../views/Login.vue'),
     }
   },
   {
-    path: '/study-rooms',
-    name: 'study-rooms',
-    component: () => import('../views/StudyRooms.vue'),
-    meta: {
-      requiresAuth: true,
-      title: '自习室管理',
-      keepAlive: true
-    }
-  },
-  {
     path: '/admin/login',
     name: 'admin-login',
     component: () => import('../views/admin/AdminLogin.vue'),
