@@ -29,6 +29,10 @@
               <el-icon><Document /></el-icon>
               <span>我的预约</span>
             </el-menu-item>
+            <el-menu-item index="/sign-in">
+              <el-icon><Check /></el-icon>
+              <span>签到签退</span>
+            </el-menu-item>
             <el-menu-item index="/study-rooms">
               <el-icon><School /></el-icon>
               <span>自习室管理</span>
@@ -69,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { House, Calendar, Document, School } from '@element-plus/icons-vue'
+import { House, Calendar, Document, School ,Check} from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 

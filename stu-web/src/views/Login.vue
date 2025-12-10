@@ -16,7 +16,7 @@
           label-position="top"
           @submit.prevent="handleLogin"
         >
-          <el-form-item label="账号" prop="Account">
+          <el-form-item label="账号" prop="userAccount">
             <el-input
               v-model="loginForm.userAccount"
               placeholder="请输入账号"
@@ -25,7 +25,7 @@
             />
           </el-form-item>
 
-          <el-form-item label="密码" prop="Password">
+          <el-form-item label="密码" prop="userPassword">
             <el-input
               v-model="loginForm.userPassword"
               type="password"
@@ -38,7 +38,6 @@
 
           <el-form-item>
             <div class="form-item-row">
-
               <el-link type="primary" class="forgot-link">忘记密码？</el-link>
             </div>
           </el-form-item>
@@ -63,29 +62,20 @@
             </el-button>
           </el-form-item>
 
+          <el-form-item>
+            <el-button type="text" style="width: 100%; color: #7f8c8d;" @click="goToAdminLogin">
+              🔐 管理员登录
+            </el-button>
+          </el-form-item>
         </el-form>
       </el-card>
     </div>
 
-    <!-- 底部信息 -->
     <div class="login-footer">
       <p>© 2025 自习室预约系统 - 让学习更高效</p>
     </div>
   </div>
 </template>
-
-<style scoped>
-.form-item-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
-
-.forgot-link {
-  margin-left: auto; /* 确保链接靠右 */
-}
-</style>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
@@ -93,26 +83,18 @@ import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 
-// 路由
 const router = useRouter()
-
-// 表单引用
 const loginFormRef = ref<FormInstance>()
-
-// 加载状态
 const loading = ref(false)
 
-// 表单数据
 const loginForm = reactive({
   userAccount: '',
   userPassword: ''
 })
 
-// 表单验证规则
 const loginRules: FormRules = {
   userAccount: [
-    { required: true, message: '请输入账号', trigger: 'blur' },
-
+    { required: true, message: '请输入账号', trigger: 'blur' }
   ],
   userPassword: [
     { required: true, message: '请输入密码', trigger: 'blur' },
@@ -124,63 +106,80 @@ const loginRules: FormRules = {
 const handleLogin = async () => {
   if (!loginFormRef.value) return
 
-  // 表单验证
-  const valid = await loginFormRef.value.validate()
+  const valid = await loginFormRef.value.validate().catch(() => false)
   if (!valid) return
 
   loading.value = true
 
   try {
-    // 发送 POST 请求到后端进行登录验证
+    // 1. 发送登录请求
     const response = await fetch('http://localhost:8080/user/login', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         userAccount: loginForm.userAccount,
         userPassword: loginForm.userPassword
       })
-    });
+    })
 
-    // 解析后端响应
-    const result = await response.json();
+    const result = await response.json()
 
     if (result.code === 200) {
-      // 登录成功，保存状态，跳转到首页
-      sessionStorage.setItem('isLoggedIn', 'true');
-      sessionStorage.setItem('userAccount', loginForm.userAccount);
+      // 2. 登录成功后，获取用户ID
+      const userId = await fetchUserId(loginForm.userAccount)
 
-      ElMessage.success(result.message || '登录成功！');
-      router.push('/home');
-    } else {
-      // 登录失败，显示错误信息
-      if (result.data && typeof result.data === 'object') {
-        // 循环展示每个字段的错误信息
-        for (const field in result.data) {
-          if (result.data.hasOwnProperty(field)) {
-            ElMessage.error(result.data[field]); // 显示每个字段的错误信息
-          }
-        }
+      if (userId) {
+        // 保存登录状态和用户信息
+        sessionStorage.setItem('isLoggedIn', 'true')
+        sessionStorage.setItem('userAccount', loginForm.userAccount)
+        sessionStorage.setItem('userId', String(userId))
+
+        ElMessage.success('登录成功！')
+        router.push('/home')
       } else {
-        // 通用错误信息
-        ElMessage.error(result.message || '登录失败，用户名或密码错误');
+        ElMessage.error('获取用户信息失败')
       }
+    } else {
+      ElMessage.error(result.message || '登录失败，用户名或密码错误')
     }
   } catch (error) {
-    console.error('登录请求失败:', error);
-    ElMessage.error('登录失败，请检查网络连接');
+    console.error('登录请求失败:', error)
+    ElMessage.error('登录失败，请检查网络连接')
   } finally {
-    loading.value = false;
+    loading.value = false
   }
-
 }
 
-// 注册处理
+// 获取用户ID
+const fetchUserId = async (userAccount: string): Promise<number | null> => {
+  try {
+    // 获取所有用户列表
+    const response = await fetch('http://localhost:8080/admin/users')
+    const result = await response.json()
+
+    if (result.code === 200 && result.data) {
+      // 找到匹配账号的用户
+      const user = result.data.find((u: any) => u.userAccount === userAccount)
+      if (user) {
+        // 保存用户名
+        sessionStorage.setItem('userName', user.userName || userAccount)
+        return user.userId
+      }
+    }
+    return null
+  } catch (error) {
+    console.error('获取用户信息失败:', error)
+    return null
+  }
+}
+
 const goToRegister = () => {
   router.push('/register')
 }
 
+const goToAdminLogin = () => {
+  router.push('/admin/login')
+}
 </script>
 
 <style scoped>
@@ -222,6 +221,17 @@ const goToRegister = () => {
   font-size: 14px;
 }
 
+.form-item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.forgot-link {
+  margin-left: auto;
+}
+
 :deep(.el-form-item__label) {
   font-weight: 600;
   color: #2c3e50;
@@ -242,15 +252,10 @@ const goToRegister = () => {
   font-size: 14px;
 }
 
-/* 响应式设计 */
 @media (max-width: 480px) {
   .login-form {
     max-width: 100%;
     padding: 0 15px;
-  }
-
-  .login-card {
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
   }
 }
 </style>
