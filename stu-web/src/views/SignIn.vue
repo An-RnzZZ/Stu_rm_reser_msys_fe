@@ -165,10 +165,11 @@ interface Reservation {
   }
 }
 
+// 修改后 - 兼容 number 类型
 interface SignRecord {
   signId: number
-  signinTime: string
-  signoutTime: string | null
+  signinTime: string | number | null
+  signoutTime: string | number | null
   signStatus: string
   reservation?: Reservation
 }
@@ -387,22 +388,41 @@ const formatTime = (time: string | undefined) => {
 }
 
 // 格式化时间戳
-const formatTimestamp = (timestamp: string | undefined) => {
-  if (!timestamp) return '-'
+// 修改后 - 兼容毫秒数和字符串格式
+const formatTimestamp = (timestamp: string | number | null | undefined) => {
+  if (timestamp === null || timestamp === undefined) return '-'
   try {
-    const date = new Date(timestamp)
+    let date: Date
+    if (typeof timestamp === 'number') {
+      // 毫秒数格式
+      date = new Date(timestamp)
+    } else {
+      // 字符串格式，兼容 "yyyy-MM-dd HH:mm:ss" 和 ISO 格式
+      date = new Date(timestamp.replace(' ', 'T'))
+    }
+
+    if (isNaN(date.getTime())) return '-'
+
     return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
   } catch {
     return '-'
   }
 }
-
 // 计算时长
-const calculateDuration = (start: string | undefined, end: string | null | undefined) => {
+// 修改后 - 兼容毫秒数和字符串格式
+const calculateDuration = (start: string | number | null | undefined, end: string | number | null | undefined) => {
   if (!start || !end) return '-'
   try {
-    const startTime = new Date(start).getTime()
-    const endTime = new Date(end).getTime()
+    const parseTime = (t: string | number): number => {
+      if (typeof t === 'number') return t
+      return new Date(t.replace(' ', 'T')).getTime()
+    }
+
+    const startTime = parseTime(start)
+    const endTime = parseTime(end)
+
+    if (isNaN(startTime) || isNaN(endTime)) return '-'
+
     const diff = Math.floor((endTime - startTime) / 1000 / 60)
     const hours = Math.floor(diff / 60)
     const mins = diff % 60
