@@ -13,7 +13,7 @@
       <!-- 返回建筑概览 -->
       <transition name="fade">
         <button
-          v-if="viewMode !== 'building'"
+          v-if="viewMode !== 'campus'"
           @click="resetView"
           class="back-btn"
         >
@@ -109,7 +109,8 @@ import axios from 'axios';
 // --- 状态管理 ---
 const canvasRef = ref(null);
 const canvasContainer = ref(null);
-const viewMode = ref('building');
+type ViewMode = 'campus' | 'building' | 'floor';
+const viewMode = ref<ViewMode>('campus');
 const currentFloor = ref(1);
 const totalFloors = 3;
 
@@ -183,11 +184,21 @@ const timeSlots = ref([]);
 
 // --- Three.js 核心变量 ---
 let scene, camera, renderer, raycaster, mouse;
-let buildingRootGroup;
-let floorStructureMeshes = []; // 建筑主体盒子
-let floorInteriorGroups = []; // 每层内部组（内容由后端动态生成）
-let floorShellGroups = []; // 每层“幽灵墙”轮廓
-let roofMesh = null; // 屋顶
+
+interface BuildingInstance {
+  id: string;
+  name: string;
+  rootGroup: THREE.Group;
+  floorStructureMeshes: THREE.Mesh[];
+  floorInteriorGroups: THREE.Group[];
+  floorShellGroups: THREE.Group[];
+  roofMesh?: THREE.Mesh;
+  hitBox?: THREE.Mesh;
+}
+
+const buildings: BuildingInstance[] = [];
+let activeBuilding: BuildingInstance | null = null;
+
 let envGroup = null; // 环境（马路、树等）
 let animationId;
 
@@ -418,16 +429,39 @@ const initScene = () => {
 };
 
 // --- 建筑 + 幽灵墙（外壳仍然是静态 3 层，内部动态） ---
-const createBuilding = () => {
-  buildingRootGroup = new THREE.Group();
-  scene.add(buildingRootGroup);
+const createBuildingInstance = (config: {
+  id: string;
+  name: string;
+  position?: { x: number; z: number };
+}) => {
+  const building: BuildingInstance = {
+    id: config.id,
+    name: config.name,
+    rootGroup: new THREE.Group(),
+    floorStructureMeshes: [],
+    floorInteriorGroups: [],
+    floorShellGroups: [],
+    roofMesh: undefined
+  };
+
+  building.rootGroup.name = `Building_${config.id}`;
+
+  if (config.position) {
+    building.rootGroup.position.set(
+      config.position.x,
+      0,
+      config.position.z
+    );
+  }
+
+  scene.add(building.rootGroup);
 
   const groundGeo = new THREE.PlaneGeometry(90, 90);
   const ground = new THREE.Mesh(groundGeo, materials.ground);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   ground.position.y = -0.01;
-  buildingRootGroup.add(ground);
+  building.rootGroup.add(ground);
 
   for (let i = 0; i < totalFloors; i++) {
     const floorY = i * FLOOR_LEVEL_HEIGHT + FLOOR_LEVEL_HEIGHT / 2;
@@ -445,10 +479,12 @@ const createBuilding = () => {
     floorMesh.userData = {
       type: 'floor',
       floorNumber: i + 1,
-      name: `图书馆${i + 1}层`
+      name: `图书馆${i + 1}层`,
+      originalY: floorY // ⭐ 新增
     };
-    buildingRootGroup.add(floorMesh);
-    floorStructureMeshes.push(floorMesh);
+    floorMesh.userData.originalY = floorY;
+    building.rootGroup.add(floorMesh);
+    building.floorStructureMeshes.push(floorMesh);
 
     const windowPaneGeo = new THREE.BoxGeometry(
       floorSizeXY * 0.7,
@@ -471,7 +507,7 @@ const createBuilding = () => {
     const window4 = window3.clone();
     window4.position.x *= -1;
 
-    buildingRootGroup.add(window1, window2, window3, window4);
+    building.rootGroup.add(window1, window2, window3, window4);
 
     // 幽灵墙
     const shellGroup = new THREE.Group();
@@ -516,7 +552,7 @@ const createBuilding = () => {
     shellGroup.add(leftWall);
 
     scene.add(shellGroup);
-    floorShellGroups.push(shellGroup);
+    building.floorShellGroups.push(shellGroup);
   }
 
   const roofBaseSize = libraryWidth * 0.9 - (totalFloors - 1) * 0.5;
@@ -526,11 +562,40 @@ const createBuilding = () => {
     roughness: 0.6,
     metalness: 0.1
   });
-  roofMesh = new THREE.Mesh(roofGeo, roofMat);
-  roofMesh.position.y = totalFloors * FLOOR_LEVEL_HEIGHT + 0.2;
-  roofMesh.castShadow = true;
-  roofMesh.receiveShadow = true;
-  buildingRootGroup.add(roofMesh);
+  building.roofMesh = new THREE.Mesh(roofGeo, roofMat);
+  building.roofMesh.position.y = totalFloors * FLOOR_LEVEL_HEIGHT + 0.2;
+  building.roofMesh.castShadow = true;
+  building.roofMesh.receiveShadow = true;
+  building.rootGroup.add(building.roofMesh);
+// ======================
+// 建筑点击代理（Campus 用）
+// ======================
+  const hitBoxHeight = totalFloors * FLOOR_LEVEL_HEIGHT + 1;
+  const hitBoxGeo = new THREE.BoxGeometry(
+    libraryWidth * 0.95,
+    hitBoxHeight,
+    libraryWidth * 0.95
+  );
+
+  const hitBoxMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.0, // 完全不可见
+    depthWrite: false
+  });
+
+  const hitBox = new THREE.Mesh(hitBoxGeo, hitBoxMat);
+  hitBox.position.y = hitBoxHeight / 2;
+  hitBox.userData = {
+    type: 'building',
+    buildingId: building.id
+  };
+
+// ⚠️ 一定要加到 rootGroup
+  building.rootGroup.add(hitBox);
+  building.hitBox = hitBox;
+
+  return building;
 };
 
 // --- 环境 ---
@@ -571,14 +636,15 @@ const closeSeatAdmin = () => {
 
 
 // --- 每层创建一个空的内部 group，内容全部由后端填充 ---
-const createEmptyFloorGroups = () => {
+const createEmptyFloorGroups = (building: BuildingInstance) => {
   for (let i = 1; i <= totalFloors; i++) {
     const floorGroup = new THREE.Group();
-    floorGroup.name = `Floor_${i}_Interior`;
+    floorGroup.name = `Building_${building.id}_Floor_${i}_Interior`;
     floorGroup.position.y = (i - 1) * FLOOR_LEVEL_HEIGHT;
     floorGroup.visible = false;
-    floorInteriorGroups.push(floorGroup);
-    scene.add(floorGroup);
+
+    building.floorInteriorGroups.push(floorGroup);
+    building.rootGroup.add(floorGroup); // ✅ 必须挂在 building 下
   }
 };
 
@@ -636,7 +702,7 @@ const applySeatMaterialByEnabled = (seat) => {
 
 // 对当前楼层所有座位应用筛选规则
 const applyTimeFilterToCurrentFloorSeats = () => {
-  const group = floorInteriorGroups[currentFloor.value - 1];
+  const group = activeBuilding?.floorInteriorGroups[currentFloor.value - 1];
   if (!group) return;
 
   group.traverse((obj) => {
@@ -831,7 +897,7 @@ const api = axios.create({
 });
 // 然后在 fetchFloorLayout 里用这个实例：
 const fetchFloorLayout = async (floorNum) => {
-  const group = floorInteriorGroups[floorNum - 1];
+  const group = activeBuilding?.floorInteriorGroups[floorNum - 1];
   if (!group) return;
 
   const res = await api.get(`/building/${floorNum}`, {
@@ -864,7 +930,10 @@ const fetchFloorLayout = async (floorNum) => {
 
 // --- 楼层视图：显示座位 + 处理书架透明度 + 幽灵墙 ---
 const showFloorInterior = (floorNum) => {
-  floorInteriorGroups.forEach((group, index) => {
+  if (!activeBuilding) return;
+
+
+  activeBuilding?.floorInteriorGroups.forEach((group, index) => {
     const isTarget = index + 1 === floorNum;
     group.visible = isTarget;
     if (isTarget) {
@@ -886,7 +955,7 @@ const showFloorInterior = (floorNum) => {
     }
   });
 
-  floorShellGroups.forEach((shell, index) => {
+  activeBuilding?.floorShellGroups.forEach((shell, index) => {
     shell.visible = index + 1 === floorNum;
   });
 };
@@ -962,11 +1031,15 @@ const onMouseMove = (event: MouseEvent) => {
 
   let intersects = [];
   let selectableObjects = [];
-
-  if (viewMode.value === 'building') {
-    selectableObjects = floorStructureMeshes;
+  if (viewMode.value === 'campus') {
+    selectableObjects = buildings
+      .map(b => b.hitBox)
+      .filter(Boolean);
+  }
+  else if (viewMode.value === 'building') {
+    selectableObjects = activeBuilding?.floorStructureMeshes|| [];
   } else if (viewMode.value === 'floor') {
-    const currentFloorDetails = floorInteriorGroups[currentFloor.value - 1];
+    const currentFloorDetails = activeBuilding?.floorInteriorGroups[currentFloor.value - 1];
     if (currentFloorDetails) {
       currentFloorDetails.traverse((child) => {
         if (
@@ -989,7 +1062,7 @@ const onMouseMove = (event: MouseEvent) => {
     let interactiveObject = object;
     while (
       interactiveObject &&
-      !['seat', 'floor', 'room'].includes(interactiveObject.userData.type) &&
+      !['seat', 'floor', 'room', 'building'].includes(interactiveObject.userData.type) &&
       interactiveObject.parent
       ) {
       interactiveObject = interactiveObject.parent;
@@ -1040,6 +1113,9 @@ const onMouseMove = (event: MouseEvent) => {
       } else {
         hoverInfo.value = `${interactiveObject.userData.id}（维修中）`;
       }
+    }else if (interactiveObject.userData.type === 'building') {
+      const b = buildings.find(x => x.id === interactiveObject.userData.buildingId);
+      hoverInfo.value = b ? `进入：${b.name}` : '进入建筑';
     }
 
     tooltipStyle.left = event.clientX + 15 + 'px';
@@ -1076,7 +1152,6 @@ const onMouseClick = (event: MouseEvent) => {
   if (loading.value) return;
   if (!canvasRef.value) return;
 
-  // ✅ 核心修复：使用 canvas 的真实坐标系
   const rect = canvasRef.value.getBoundingClientRect();
   mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1084,26 +1159,21 @@ const onMouseClick = (event: MouseEvent) => {
 
   let intersects: THREE.Intersection[] = [];
 
-  // ===============================
-  // 建筑视图：点楼层
-  // ===============================
-  if (viewMode.value === 'building') {
-    intersects = raycaster.intersectObjects(floorStructureMeshes, true);
+  // ✅ 这里必须是 if / else if / else if
+  if (viewMode.value === 'campus') {
+    const objs = buildings.map(b => b.hitBox).filter(Boolean) as THREE.Object3D[];
+    intersects = raycaster.intersectObjects(objs, true);
   }
-
-    // ===============================
-    // 楼层视图：沿用你现在的逻辑（不动）
-  // ===============================
+  else if (viewMode.value === 'building') {
+    intersects = raycaster.intersectObjects(activeBuilding?.floorStructureMeshes || [], true);
+  }
   else if (viewMode.value === 'floor') {
-    const currentFloorGroup = floorInteriorGroups[currentFloor.value - 1];
+    const currentFloorGroup = activeBuilding?.floorInteriorGroups[currentFloor.value - 1];
     if (!currentFloorGroup) return;
 
     const seatObjects: THREE.Object3D[] = [];
-
     currentFloorGroup.traverse(obj => {
-      if (obj.userData?.type === 'seat') {
-        seatObjects.push(obj);
-      }
+      if (obj.userData?.type === 'seat') seatObjects.push(obj);
     });
 
     intersects = raycaster.intersectObjects(seatObjects, true);
@@ -1111,41 +1181,36 @@ const onMouseClick = (event: MouseEvent) => {
 
   if (intersects.length === 0) return;
 
-  // ===============================
-  // 向上找到 seat / floor
-  // ===============================
+  // ✅ 支持 building
   let target: THREE.Object3D | null = intersects[0].object;
   while (
     target &&
-    !['seat', 'floor'].includes(target.userData?.type) &&
+    !['seat', 'floor', 'building'].includes(target.userData?.type) &&
     target.parent
     ) {
     target = target.parent;
   }
-
   if (!target) return;
 
-  // ===============================
-  // 建筑视图：进入楼层
-  // ===============================
-  if (
-    viewMode.value === 'building' &&
-    target.userData.type === 'floor'
-  ) {
+  // Campus：进入建筑
+  if (viewMode.value === 'campus' && target.userData?.type === 'building') {
+    const building = buildings.find(b => b.id === target.userData.buildingId);
+    if (building) enterBuildingView(building);
+    return;
+  }
+
+  // Building：进入楼层
+  if (viewMode.value === 'building' && target.userData?.type === 'floor') {
     enterFloorView(target.userData.floorNumber);
     return;
   }
 
-  // ===============================
-  // 楼层视图：点击座位 → 管理弹窗
-  // ===============================
-  if (
-    viewMode.value === 'floor' &&
-    target.userData.type === 'seat'
-  ) {
+  // Floor：座位管理
+  if (viewMode.value === 'floor' && target.userData?.type === 'seat') {
     handleSeatClick(target);
   }
 };
+
 
 
 // --- 进入楼层视图 ---
@@ -1156,7 +1221,9 @@ const enterFloorView = (floorNum) => {
   selectedOutlineObjects = [];
   outlinePass.selectedObjects = selectedOutlineObjects;
 
-  if (roofMesh) roofMesh.visible = false;
+  if (activeBuilding && activeBuilding.roofMesh) {
+    activeBuilding.roofMesh.visible = false;
+  }
   if (envGroup) envGroup.visible = false;
 
   const targetFloorYBase = (floorNum - 1) * FLOOR_LEVEL_HEIGHT;
@@ -1171,12 +1238,12 @@ const enterFloorView = (floorNum) => {
     0
   );
 
-  floorStructureMeshes.forEach((mesh) => {
+  activeBuilding?.floorStructureMeshes.forEach((mesh) => {
     if (mesh.userData.floorNumber === floorNum) {
       gsap.to(mesh.material, { opacity: 0.1, duration: 1.5 });
     } else {
       gsap.to(mesh.position, {
-        y: mesh.position.y + 50,
+        y: mesh.userData.originalY + 50,
         duration: 1.5,
         ease: 'power2.inOut'
       });
@@ -1189,7 +1256,7 @@ const enterFloorView = (floorNum) => {
   const tl = gsap.timeline({
     defaults: { duration: 1.8, ease: 'power2.inOut' },
     onComplete: async () => {
-      floorStructureMeshes.forEach((m) => {
+      activeBuilding?.floorStructureMeshes.forEach((m) => {
         m.visible = false;
       });
 
@@ -1225,12 +1292,14 @@ const selectFloor = (floorNum) => {
   selectedOutlineObjects = [];
   outlinePass.selectedObjects = selectedOutlineObjects;
 
-  const prevFloorGroup = floorInteriorGroups[currentFloor.value - 1];
+  const prevFloorGroup = activeBuilding?.floorInteriorGroups[currentFloor.value - 1];
   if (prevFloorGroup) {
     prevFloorGroup.visible = false;
   }
 
-  if (roofMesh) roofMesh.visible = false;
+  if (activeBuilding && activeBuilding.roofMesh) {
+    activeBuilding.roofMesh.visible = false;
+  }
   if (envGroup) envGroup.visible = false;
 
   currentFloor.value = floorNum;
@@ -1278,41 +1347,40 @@ const selectFloor = (floorNum) => {
 
 // --- 返回建筑视图 ---
 const resetView = () => {
-  viewMode.value = 'building';
-  currentFloor.value = 0;
+  viewMode.value = 'campus';
+  currentFloor.value = 1;
   freezeTooltip.value = true;
+
   selectedOutlineObjects = [];
-  outlinePass.selectedObjects = selectedOutlineObjects;
+  outlinePass.selectedObjects = [];
 
-  floorInteriorGroups.forEach((group) => {
-    group.visible = false;
-  });
-  floorShellGroups.forEach((shell) => {
-    shell.visible = false;
-  });
+  // 还原所有建筑（现在只有 activeBuilding）
+  buildings.forEach((b) => {
+    b.floorInteriorGroups.forEach((group) => (group.visible = false));
+    b.floorShellGroups.forEach((shell) => (shell.visible = false));
+    b.floorStructureMeshes.forEach((mesh) => {
+      mesh.visible = true;
 
-  floorStructureMeshes.forEach((mesh) => {
-    mesh.visible = true;
-
-    gsap.to(mesh.position, {
-      y:
-        (mesh.userData.floorNumber - 1) * FLOOR_LEVEL_HEIGHT +
-        FLOOR_LEVEL_HEIGHT / 2,
-      duration: 1.2,
-      ease: 'power1.out',
-      delay: 0.4
+      // ⭐ 关键：位置复位
+      if (mesh.userData.originalY !== undefined) {
+        mesh.position.y = mesh.userData.originalY;
+      }
+      gsap.to(mesh.material, { opacity: 0.95, duration: 1.0 });
     });
-
-    gsap.to(mesh.material, { opacity: 0.95, duration: 1.2, delay: 0.4 });
+    if (b.roofMesh) b.roofMesh.visible = true;
   });
 
-  if (roofMesh) roofMesh.visible = true;
   if (envGroup) envGroup.visible = true;
 
   if (controls) controls.enabled = false;
 
-  const tl = gsap.timeline({
-    defaults: { duration: 1.5, ease: 'power1.inOut' },
+  gsap.to(camera.position, {
+    x: 90,
+    y: 70,
+    z: 90,
+    duration: 1.5,
+    ease: 'power1.inOut',
+    onUpdate: () => camera.lookAt(0, 5, 0),
     onComplete: () => {
       freezeTooltip.value = false;
       if (controls) {
@@ -1322,18 +1390,8 @@ const resetView = () => {
       }
     }
   });
-
-  tl.to(
-    camera.position,
-    {
-      x: 55,
-      y: 45,
-      z: 55,
-      onUpdate: () => camera.lookAt(0, 5, 0)
-    },
-    0
-  );
 };
+
 
 // --- 座位点击：暂时仍使用你原来的本地预约逻辑 ---
 const handleSeatClick = (seat) => {
@@ -1344,6 +1402,38 @@ const handleSeatClick = (seat) => {
 };
 
 
+const enterBuildingView = (building: BuildingInstance) => {
+  activeBuilding = building;
+  viewMode.value = 'building';
+
+  freezeTooltip.value = true;
+  selectedOutlineObjects = [];
+  outlinePass.selectedObjects = [];
+
+  // 隐藏其他建筑（现在只有一个，其实什么都不变）
+  buildings.forEach((b) => {
+    b.rootGroup.visible = b === building;
+  });
+
+  if (controls) controls.enabled = false;
+
+  gsap.to(camera.position, {
+    x: 55,
+    y: 45,
+    z: 55,
+    duration: 1.4,
+    ease: 'power2.out',
+    onUpdate: () => camera.lookAt(0, 5, 0),
+    onComplete: () => {
+      freezeTooltip.value = false;
+      if (controls) {
+        controls.target.set(0, 5, 0);
+        controls.enabled = true;
+        controls.update();
+      }
+    }
+  });
+};
 
 
 
@@ -1454,29 +1544,51 @@ const applyTimeFilter = async () => {
 };
 
 onMounted(() => {
+  // ======================
+  // 时间 & UI 初始化
+  // ======================
   initDateAndTimeOptions();
   initTimeSlots();
   initDefaultTimeFilter();
 
+  // ======================
+  // Three.js 场景初始化
+  // ======================
   initScene();
-  createBuilding();
-  createEnvironment();
-  createEmptyFloorGroups();
 
+  // ======================
+  // 创建建筑（Campus 层）
+  // ======================
+  const buildingA = createBuildingInstance({
+    id: 'A',
+    name: '一号楼',
+    position: { x: 0, z: 0 }
+  });
+
+  createEmptyFloorGroups(buildingA);
+  buildings.push(buildingA);
+
+  // ❌ 不要设置 activeBuilding
+  activeBuilding = null;
+
+  // ======================
+  // 环境
+  // ======================
+  createEnvironment();
+
+  // ======================
+  // 渲染循环
+  // ======================
   animate();
 
+  // ======================
+  // 事件监听
+  // ======================
   window.addEventListener('resize', handleResize);
   window.addEventListener('click', onMouseClick);
   window.addEventListener('mousemove', onMouseMove);
 });
 
-onBeforeUnmount(() => {
-  window.removeEventListener('resize', handleResize);
-  window.removeEventListener('click', onMouseClick);
-  window.removeEventListener('mousemove', onMouseMove);
-  cancelAnimationFrame(animationId);
-  if (controls) controls.dispose();
-});
 </script>
 
 <style scoped lang="scss">
