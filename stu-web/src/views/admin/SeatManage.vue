@@ -2,30 +2,82 @@
   <div class="scene-container" ref="canvasContainer">
     <canvas ref="canvasRef"></canvas>
 
-    <!-- 加载进度条 -->
+    <!-- ================== 加载中 ================== -->
     <div v-if="loading" class="loading-overlay">
       <div class="spinner"></div>
       <p>正在生成图书馆场景...</p>
     </div>
 
-    <!-- 悬浮 UI -->
+    <!-- ================== UI 悬浮层 ================== -->
     <div class="ui-overlay" :class="{ 'ui-hidden': loading }">
-      <!-- 返回建筑概览 -->
+
+      <!-- ===== 新建筑放置面板 ===== -->
+      <div
+        v-if="adminMode === 'placingBuilding'"
+        class="placement-panel"
+        @mousedown.stop
+        @mouseup.stop
+        @click.stop
+      >
+        <div class="panel-header">
+          🏗 新建筑放置
+        </div>
+
+        <div class="panel-body">
+          <div class="pos-row">
+            <span>X</span>
+            <strong>{{ ghostPosX.toFixed(1) }}</strong>
+          </div>
+          <div class="pos-row">
+            <span>Z</span>
+            <strong>{{ ghostPosZ.toFixed(1) }}</strong>
+          </div>
+
+          <div class="hint">
+            使用方向键微调位置（Shift 加速）
+          </div>
+        </div>
+
+        <div class="panel-actions">
+          <button class="btn-cancel" @click="cancelGhostBuilding">
+            取消
+          </button>
+          <button class="btn-confirm" @click="confirmGhostBuilding">
+            确认放置
+          </button>
+        </div>
+      </div>
+
+      <!-- ===== 顶部按钮 ===== -->
       <transition name="fade">
-        <button
-          v-if="viewMode !== 'campus'"
-          @click="resetView"
-          class="back-btn"
-        >
-          ← 返回建筑概览
-        </button>
+        <div>
+          <button
+            v-if="viewMode !== 'campus'"
+            @click="resetView"
+            class="back-btn"
+          >
+            ← 返回建筑概览
+          </button>
+
+          <button
+            v-if="viewMode === 'campus'"
+            @click="enterAddBuildingMode"
+            class="back-btn"
+          >
+            ➕ 新增建筑
+          </button>
+        </div>
       </transition>
 
-
-
-      <!-- 楼层选择 -->
+      <!-- ===== 楼层选择 ===== -->
       <transition name="fade">
-        <div class="floor-selector" v-if="viewMode === 'floor'">
+        <div
+          v-if="viewMode === 'floor'"
+          class="floor-selector"
+          @mousedown.stop
+          @mouseup.stop
+          @click.stop
+        >
           <div class="floor-label">选择楼层:</div>
           <button
             v-for="floorNum in totalFloors"
@@ -38,8 +90,14 @@
         </div>
       </transition>
 
-      <!-- 图例 -->
-      <div class="legend" v-if="viewMode === 'floor'">
+      <!-- ===== 图例 ===== -->
+      <div
+        class="legend"
+        v-if="viewMode === 'floor'"
+        @mousedown.stop
+        @mouseup.stop
+        @click.stop
+      >
         <div class="item">
           <span class="dot free"></span>正常启用
         </div>
@@ -47,10 +105,9 @@
           <span class="dot disabled"></span>维修中
         </div>
       </div>
-
     </div>
 
-    <!-- 座位 Tooltip -->
+    <!-- ================== Tooltip ================== -->
     <div
       class="tooltip"
       ref="tooltipRef"
@@ -60,9 +117,20 @@
       {{ hoverInfo }}
     </div>
 
-    <!-- 座位管理弹窗 -->
-    <div v-if="showSeatAdminModal" class="reservation-overlay">
-      <div class="reservation-dialog">
+    <!-- ================== 座位管理弹窗 ================== -->
+    <div
+      v-if="showSeatAdminModal"
+      class="reservation-overlay"
+      @click.self="closeSeatAdmin"
+      @mousedown.stop
+      @mouseup.stop
+    >
+      <div
+        class="reservation-dialog"
+        @click.stop
+        @mousedown.stop
+        @mouseup.stop
+      >
         <h2>座位管理</h2>
 
         <p class="seat-label">
@@ -89,10 +157,60 @@
       </div>
     </div>
 
+    <!-- ================== 建筑配置确认弹窗 ================== -->
+    <div
+      v-if="showBuildingConfigModal"
+      class="reservation-overlay"
+      @click.self="showBuildingConfigModal = false"
+      @mousedown.stop
+      @mouseup.stop
+    >
+      <div
+        class="reservation-dialog"
+        @click.stop
+        @mousedown.stop
+        @mouseup.stop
+      >
+        <h2>确认建筑配置</h2>
 
+        <div class="form-row">
+          <label>楼层数</label>
+          <input type="number" v-model.number="addForm.floors" min="1" />
+        </div>
 
+        <div class="form-row">
+          <label>每层自习室数量</label>
+          <input type="number" v-model.number="addForm.roomsPerFloor" min="1" />
+        </div>
+
+        <div class="form-row">
+          <label>每个自习室座位数</label>
+          <input type="number" v-model.number="addForm.seatsPerRoom" min="1" />
+        </div>
+
+        <p class="hint">
+          确认后将生成建筑结构和所有座位
+        </p>
+
+        <div class="dialog-actions">
+          <button
+            class="btn-cancel"
+            @click="showBuildingConfigModal = false"
+          >
+            返回修改
+          </button>
+          <button
+            class="btn-confirm"
+            @click="confirmCreateBuildingFinal"
+          >
+            确认创建
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
+
 
 <script setup lang="ts">
 import { ref, onMounted, onBeforeUnmount, reactive } from 'vue';
@@ -107,6 +225,9 @@ import gsap from 'gsap';
 import axios from 'axios';
 
 // --- 状态管理 ---
+
+const showBuildingConfigModal = ref(false);
+
 const canvasRef = ref(null);
 const canvasContainer = ref(null);
 type ViewMode = 'campus' | 'building' | 'floor';
@@ -121,6 +242,12 @@ const freezeTooltip = ref(true);
 
 const loading = ref(true);
 
+type AdminMode = 'normal' | 'placingBuilding';
+
+const adminMode = ref<AdminMode>('normal');
+let ghostBuilding: BuildingInstance | null = null;
+const ghostPosX = ref(0);
+const ghostPosZ = ref(0);
 
 const timeTicks = ref(['08:00', '12:00', '16:00', '20:00', '22:00']); // 时间刻度
 
@@ -128,7 +255,47 @@ const timeTicks = ref(['08:00', '12:00', '16:00', '20:00', '22:00']); // 时间�
 const showSeatAdminModal = ref(false);
 const adminSeat = ref(null);
 
+const showAddBuildingModal = ref(false);
+const addForm = reactive({
+  id: '',
+  name: '',
+  x: 0,
+  z: 0,
+  floors: 3,
+  roomsPerFloor: 2,
+  seatsPerRoom: 8
+});
 
+const confirmAddBuildingLocal = () => {
+  const id = addForm.id.trim();
+  const name = addForm.name.trim();
+  if (!id || !name) {
+    alert('请填写建筑ID和名称');
+    return;
+  }
+
+  const all = loadBuildingsFromStorage();
+  if (all.some(b => b.id === id)) {
+    alert('建筑ID已存在');
+    return;
+  }
+
+  const dto = generateBuildingData({
+    id,
+    name,
+    position: { x: Number(addForm.x) || 0, z: Number(addForm.z) || 0 },
+    floors: Number(addForm.floors) || 3,
+    roomsPerFloor: Number(addForm.roomsPerFloor) || 2,
+    seatsPerRoom: Number(addForm.seatsPerRoom) || 8
+  });
+
+  all.push(dto);
+  saveBuildingsToStorage(all);
+
+  createBuildingFromPersistData(dto);
+
+  showAddBuildingModal.value = false;
+};
 
 
 // 新增：更新时间刻度（根据动态时间范围）
@@ -194,6 +361,7 @@ interface BuildingInstance {
   floorShellGroups: THREE.Group[];
   roofMesh?: THREE.Mesh;
   hitBox?: THREE.Mesh;
+  __layout?: Record<number, any[]>;
 }
 
 const buildings: BuildingInstance[] = [];
@@ -220,6 +388,265 @@ const parseTimeStr = (str) => {
   if (Number.isNaN(h) || Number.isNaN(m)) return null;
   return h * 60 + m;
 };
+
+
+type BuildingPersistDTO = {
+  id: string;
+  name: string;
+  position: { x: number; z: number };
+  floors: number;
+  layout: Record<number, any[]>;
+};
+
+const STORAGE_KEY = 'admin_buildings_v1';
+
+const loadBuildingsFromStorage = (): BuildingPersistDTO[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) {
+    console.warn('load storage failed', e);
+    return [];
+  }
+};
+
+const saveBuildingsToStorage = (list: BuildingPersistDTO[]) => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+};
+
+const enterAddBuildingMode = () => {
+  // 🚨 只允许在 campus
+  if (viewMode.value !== 'campus') return;
+
+  // 🚨 防止重复进入
+  if (adminMode.value === 'placingBuilding') return;
+
+  adminMode.value = 'placingBuilding';
+  startGhostBuilding();
+};
+
+
+const startGhostBuilding = () => {
+  // 防止重复
+  if (ghostBuilding) {
+    scene.remove(ghostBuilding.rootGroup);
+    ghostBuilding = null;
+  }
+
+  ghostBuilding = createBuildingInstance({
+    id: '__ghost__',
+    name: '新建筑（预览）',
+    position: { x: 0, z: 0 }
+  });
+
+// ⭐ 标记幽灵
+  ghostBuilding.rootGroup.userData.isGhost = true;
+
+// ⭐ 关键：放到 layer 1
+  ghostBuilding.rootGroup.traverse(obj => {
+    obj.layers.set(1);
+  });
+
+  applyGhostStyle(ghostBuilding);
+  ghostPosX.value = ghostBuilding.rootGroup.position.x;
+  ghostPosZ.value = ghostBuilding.rootGroup.position.z;
+
+
+};
+
+
+const applyGhostStyle = (building: BuildingInstance) => {
+  building.rootGroup.traverse((obj) => {
+    if (!obj.isMesh) return;
+
+    obj.material = obj.material.clone();
+    obj.material.transparent = true;
+    obj.material.opacity = 0.25;
+
+    // 幽灵蓝
+    if (obj.material.color) {
+      obj.material.color.multiplyScalar(0.8);
+    }
+
+    // 不投射阴影
+    obj.castShadow = false;
+    obj.receiveShadow = false;
+  });
+
+  // 幽灵建筑不能被点击
+  if (building.hitBox) {
+    building.hitBox.visible = false;
+  }
+};
+const handleGhostKeyMove = (e: KeyboardEvent) => {
+  // 🚫 输入框里不响应
+  const tag = (e.target as HTMLElement)?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+
+  if (adminMode.value !== 'placingBuilding' || !ghostBuilding) return;
+
+  const step = e.shiftKey ? 5 : 1;
+
+  switch (e.key) {
+    case 'ArrowUp':
+      ghostBuilding.rootGroup.position.z -= step;
+      break;
+    case 'ArrowDown':
+      ghostBuilding.rootGroup.position.z += step;
+      break;
+    case 'ArrowLeft':
+      ghostBuilding.rootGroup.position.x -= step;
+      break;
+    case 'ArrowRight':
+      ghostBuilding.rootGroup.position.x += step;
+      break;
+  }
+
+  ghostPosX.value = ghostBuilding.rootGroup.position.x;
+  ghostPosZ.value = ghostBuilding.rootGroup.position.z;
+};
+
+const cancelGhostBuilding = () => {
+  if (ghostBuilding) {
+    scene.remove(ghostBuilding.rootGroup);
+    ghostBuilding = null;
+  }
+
+  // ⭐ 清空表单
+  addForm.id = '';
+  addForm.name = '';
+
+  adminMode.value = 'normal';
+};
+
+
+
+const confirmGhostBuilding = () => {
+  if (!ghostBuilding) return;
+  // ⭐ 不创建，只弹窗
+  showBuildingConfigModal.value = true;
+
+};
+
+
+const confirmCreateBuildingFinal = () => {
+  if (!ghostBuilding) return;
+
+  const dto = generateBuildingData({
+    id: addForm.id || `B${Date.now()}`,
+    name: addForm.name || '新建筑',
+    position: {
+      x: ghostBuilding.rootGroup.position.x,
+      z: ghostBuilding.rootGroup.position.z
+    },
+    floors: addForm.floors,
+    roomsPerFloor: addForm.roomsPerFloor,
+    seatsPerRoom: addForm.seatsPerRoom
+  });
+
+  // 本地保存（或未来换成后端）
+  const all = loadBuildingsFromStorage();
+  all.push(dto);
+  saveBuildingsToStorage(all);
+
+  // 移除幽灵
+  scene.remove(ghostBuilding.rootGroup);
+  ghostBuilding = null;
+
+  // 创建正式建筑
+  const newBuilding = createBuildingFromPersistData(dto);
+  if (!newBuilding) return;
+
+  // 进入建筑视图
+  activeBuilding = newBuilding;
+  viewMode.value = 'building';
+  buildings.forEach(b => (b.rootGroup.visible = b === newBuilding));
+
+  // 镜头飞过去
+  flyCameraToBuilding(newBuilding, { distance: 60, height: 50 });
+
+  adminMode.value = 'normal';
+  showBuildingConfigModal.value = false;
+};
+
+
+const getActiveBuildingCenter = () => {
+  const c = new THREE.Vector3();
+  if (!activeBuilding) return c;
+  activeBuilding.rootGroup.getWorldPosition(c);
+  return c;
+};
+
+const generateBuildingData = (form: {
+  id: string;
+  name: string;
+  position: { x: number; z: number };
+  floors: number;
+  roomsPerFloor: number;
+  seatsPerRoom: number;
+}): BuildingPersistDTO => {
+  const layout: Record<number, any[]> = {};
+
+  for (let f = 1; f <= form.floors; f++) {
+    const rooms: any[] = [];
+
+    for (let r = 0; r < form.roomsPerFloor; r++) {
+      const roomId = `${form.id}-F${f}-R${r + 1}`;
+
+      const seats: any[] = [];
+      for (let s = 0; s < form.seatsPerRoom; s++) {
+        seats.push({
+          id: `${roomId}-S${s + 1}`,
+          number: s + 1,
+          x: (s % 4) * 1.2,                 // 每排 4 个
+          y: Math.floor(s / 4) * 1.2,       // 这里的 y 你当 z 用
+          enabled: true,
+          resvSummary: []
+        });
+      }
+
+      rooms.push({
+        id: roomId,
+        name: `房间 ${r + 1}`,
+        type: 'study',
+        position: { x: r * 14 - 14, z: 0 },  // 房间间距 14
+        size: { width: 10, depth: 8 },
+        seats
+      });
+    }
+
+    layout[f] = rooms;
+  }
+
+  return {
+    id: form.id,
+    name: form.name,
+    position: form.position,
+    floors: form.floors,
+    layout
+  };
+};
+
+const createBuildingFromPersistData = (dto: BuildingPersistDTO): BuildingInstance | null => {
+  if (buildings.some(b => b.id === dto.id)) return null;
+
+  const building = createBuildingInstance({
+    id: dto.id,
+    name: dto.name,
+    position: dto.position
+  });
+
+  createEmptyFloorGroups(building);
+  building.__layout = dto.layout;
+  buildings.push(building);
+
+  building.rootGroup.visible = viewMode.value === 'campus';
+
+  return building;
+};
+
+
+
 
 // --- 材质 ---
 const materials = {
@@ -326,8 +753,11 @@ const initScene = () => {
     0.1,
     1000
   );
+  camera.layers.enable(0);   // 正常建筑
+  camera.layers.enable(1); // 幽灵建筑
   camera.position.set(55, 45, 55);
   camera.lookAt(0, 5, 0);
+
 
   renderer = new THREE.WebGLRenderer({
     canvas: canvasRef.value,
@@ -347,7 +777,7 @@ const initScene = () => {
   controls.dampingFactor = 0.08;
   controls.enablePan = false;
   controls.minDistance = 25;
-  controls.maxDistance = 120;
+  controls.maxDistance = 300;
   controls.minPolarAngle = Math.PI / 6;
   controls.maxPolarAngle = Math.PI / 2.1;
   controls.target.set(0, 5, 0);
@@ -371,6 +801,10 @@ const initScene = () => {
   scene.add(dirLight);
 
   raycaster = new THREE.Raycaster();
+  // ⭐ 关键：raycaster 只检测 layer 0
+  raycaster.layers.enable(0);
+  raycaster.layers.disable(1);
+
   mouse = new THREE.Vector2();
 
   composer = new EffectComposer(renderer);
@@ -598,6 +1032,40 @@ const createBuildingInstance = (config: {
   return building;
 };
 
+const createBuildingFromBackend = (dto) => {
+  // 防止重复
+  if (buildings.some(b => b.id === dto.id)) return;
+
+  const building = createBuildingInstance({
+    id: dto.id,
+    name: dto.name,
+    position: dto.position
+  });
+
+  createEmptyFloorGroups(building);
+
+  // ⚠️ 关键：直接缓存后端 layout
+  building.__layoutFromBackend = dto.layout;
+
+  buildings.push(building);
+
+  // campus 视图可见
+  building.rootGroup.visible = viewMode.value === 'campus';
+};
+
+
+const confirmAddBuilding = async () => {
+  const res = await api.post('/admin/buildings', {
+    name: form.name,
+    position: form.position,
+    floors: form.floors,
+    roomsPerFloor: form.roomsPerFloor,
+    seatsPerRoom: form.seatsPerRoom
+  });
+
+  // 只用后端返回的数据
+  createBuildingFromBackend(res.data);
+};
 // --- 环境 ---
 const createEnvironment = () => {
   envGroup = new THREE.Group();
@@ -898,33 +1366,22 @@ const api = axios.create({
 // 然后在 fetchFloorLayout 里用这个实例：
 const fetchFloorLayout = async (floorNum) => {
   const group = activeBuilding?.floorInteriorGroups[floorNum - 1];
-  if (!group) return;
-
-  const res = await api.get(`/building/${floorNum}`, {
-    params: {
-      date: timeFilter.date,
-      start: timeFilter.start,
-      end: timeFilter.end
-    }
-  });
-
-  const payload = res.data || {};
-  const rooms = payload.data || [];
-
-  console.log('楼层', floorNum, 'payload =', payload);
-  console.log('rooms =', rooms);
+  if (!group || !activeBuilding) return;
 
   group.clear();
   group.visible = true;
 
-  rooms.forEach(roomDTO => buildRoomFromDTO(group, roomDTO, floorNum));
+  // ✅ 先走本地 layout（管理员新增的建筑就是这个）
+  if (activeBuilding.__layout) {
+    const rooms = activeBuilding.__layout[floorNum] || [];
+    rooms.forEach(roomDTO => buildRoomFromDTO(group, roomDTO, floorNum));
+    return;
+  }
 
-
-  // 这一句先关掉，等座位正常再开
-  // if (viewMode.value === 'floor' && currentFloor.value === floorNum) {
-  //   applyTimeFilterToCurrentFloorSeats();
-  // }
+  // ⚠️ 如果没有 layout（比如你以后接后端或旧数据），这里暂时啥也不做
+  console.warn('no layout found for building', activeBuilding.id, 'floor', floorNum);
 };
+
 
 
 
@@ -1226,17 +1683,24 @@ const enterFloorView = (floorNum) => {
   }
   if (envGroup) envGroup.visible = false;
 
+  const center = getActiveBuildingCenter();
+
   const targetFloorYBase = (floorNum - 1) * FLOOR_LEVEL_HEIGHT;
+
+// ✅ 相机目标位置：以建筑中心为基准偏移（对角方向）
   const targetCameraPos = new THREE.Vector3(
-    libraryWidth * 0.7,
+    center.x + libraryWidth * 0.7,
     targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
-    libraryWidth * 0.7
+    center.z + libraryWidth * 0.7
   );
+
+// ✅ 看向该建筑的楼层中心（不是世界原点）
   const targetLookAt = new THREE.Vector3(
-    0,
+    center.x,
     targetFloorYBase + FLOOR_LEVEL_HEIGHT / 2,
-    0
+    center.z
   );
+
 
   activeBuilding?.floorStructureMeshes.forEach((mesh) => {
     if (mesh.userData.floorNumber === floorNum) {
@@ -1304,17 +1768,22 @@ const selectFloor = (floorNum) => {
 
   currentFloor.value = floorNum;
 
+  const center = getActiveBuildingCenter();
+
   const targetFloorYBase = (floorNum - 1) * FLOOR_LEVEL_HEIGHT;
+
   const targetCameraPos = new THREE.Vector3(
-    libraryWidth * 0.7,
+    center.x + libraryWidth * 0.7,
     targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
-    libraryWidth * 0.7
+    center.z + libraryWidth * 0.7
   );
+
   const targetLookAt = new THREE.Vector3(
-    0,
+    center.x,
     targetFloorYBase + FLOOR_LEVEL_HEIGHT / 2,
-    0
+    center.z
   );
+
 
   if (controls) controls.enabled = false;
 
@@ -1345,10 +1814,19 @@ const selectFloor = (floorNum) => {
   );
 };
 
+const syncCampusVisibility = () => {
+  buildings.forEach(b => {
+    b.rootGroup.visible = viewMode.value === 'campus';
+  });
+};
+
+
 // --- 返回建筑视图 ---
 const resetView = () => {
   viewMode.value = 'campus';
   currentFloor.value = 1;
+  activeBuilding = null;
+
   freezeTooltip.value = true;
 
   selectedOutlineObjects = [];
@@ -1356,38 +1834,134 @@ const resetView = () => {
 
   // 还原所有建筑（现在只有 activeBuilding）
   buildings.forEach((b) => {
+    // ⭐⭐ 核心修复 ⭐⭐
+    b.rootGroup.visible = true;
+
     b.floorInteriorGroups.forEach((group) => (group.visible = false));
     b.floorShellGroups.forEach((shell) => (shell.visible = false));
+
     b.floorStructureMeshes.forEach((mesh) => {
       mesh.visible = true;
 
-      // ⭐ 关键：位置复位
       if (mesh.userData.originalY !== undefined) {
         mesh.position.y = mesh.userData.originalY;
       }
+
       gsap.to(mesh.material, { opacity: 0.95, duration: 1.0 });
     });
+
     if (b.roofMesh) b.roofMesh.visible = true;
   });
 
+
   if (envGroup) envGroup.visible = true;
 
-  if (controls) controls.enabled = false;
+  freezeTooltip.value = true;
 
-  gsap.to(camera.position, {
-    x: 90,
-    y: 70,
-    z: 90,
-    duration: 1.5,
-    ease: 'power1.inOut',
-    onUpdate: () => camera.lookAt(0, 5, 0),
+// ⭐ 用统一的平滑返回
+  flyCameraToCampus();
+
+// tooltip 解冻稍微延后，配合动画
+  setTimeout(() => {
+    freezeTooltip.value = false;
+  }, 800);
+
+};
+
+
+
+const flyCameraToBuilding = (
+  building: BuildingInstance,
+  options?: {
+    distance?: number;
+    height?: number;
+    duration?: number;
+  }
+) => {
+  if (!controls) return;
+
+  const distance = options?.distance ?? 55;
+  const height = options?.height ?? 45;
+  const duration = options?.duration ?? 1.8;
+
+  // 建筑中心
+  const center = new THREE.Vector3();
+  building.rootGroup.getWorldPosition(center);
+
+  // 相机最终位置（对角）
+  const targetCameraPos = new THREE.Vector3(
+    center.x + distance,
+    center.y + height,
+    center.z + distance
+  );
+
+  // 最终注视点
+  const targetLookAt = new THREE.Vector3(
+    center.x,
+    center.y + 5,
+    center.z
+  );
+
+  // 当前状态（作为动画起点）
+  const startPos = camera.position.clone();
+  const startTarget = controls.target.clone();
+
+  controls.enabled = false;
+
+  const progress = { t: 0 };
+
+  gsap.to(progress, {
+    t: 1,
+    duration,
+    ease: 'power3.inOut', // ⭐ 更柔和
+    onUpdate: () => {
+      // 平滑插值位置
+      camera.position.lerpVectors(startPos, targetCameraPos, progress.t);
+
+      // 平滑插值视线
+      controls.target.lerpVectors(startTarget, targetLookAt, progress.t);
+
+      controls.update();
+    },
     onComplete: () => {
-      freezeTooltip.value = false;
-      if (controls) {
-        controls.target.set(0, 5, 0);
-        controls.enabled = true;
-        controls.update();
-      }
+      camera.position.copy(targetCameraPos);
+      controls.target.copy(targetLookAt);
+      controls.enabled = true;
+      controls.update();
+    }
+  });
+};
+
+
+
+const flyCameraToCampus = () => {
+  if (!controls) return;
+
+  // 🎯 campus 的目标视角
+  const targetCameraPos = new THREE.Vector3(90, 70, 90);
+  const targetLookAt = new THREE.Vector3(0, 5, 0);
+
+  const startPos = camera.position.clone();
+  const startTarget = controls.target.clone();
+
+  controls.enabled = false;
+
+  const progress = { t: 0 };
+
+  gsap.to(progress, {
+    t: 1,
+    duration: 1.8,
+    ease: 'power3.inOut',
+    onUpdate: () => {
+      camera.position.lerpVectors(startPos, targetCameraPos, progress.t);
+      controls.target.lerpVectors(startTarget, targetLookAt, progress.t);
+      controls.update();
+    },
+    onComplete: () => {
+      camera.position.copy(targetCameraPos);
+      controls.target.copy(targetLookAt);
+      controls.enabled = true;
+      controls.update();
     }
   });
 };
@@ -1410,29 +1984,12 @@ const enterBuildingView = (building: BuildingInstance) => {
   selectedOutlineObjects = [];
   outlinePass.selectedObjects = [];
 
-  // 隐藏其他建筑（现在只有一个，其实什么都不变）
   buildings.forEach((b) => {
     b.rootGroup.visible = b === building;
   });
 
-  if (controls) controls.enabled = false;
-
-  gsap.to(camera.position, {
-    x: 55,
-    y: 45,
-    z: 55,
-    duration: 1.4,
-    ease: 'power2.out',
-    onUpdate: () => camera.lookAt(0, 5, 0),
-    onComplete: () => {
-      freezeTooltip.value = false;
-      if (controls) {
-        controls.target.set(0, 5, 0);
-        controls.enabled = true;
-        controls.update();
-      }
-    }
-  });
+  // ⭐ 关键：使用通用飞行函数
+  flyCameraToBuilding(building);
 };
 
 
@@ -1557,19 +2114,27 @@ onMounted(() => {
   initScene();
 
   // ======================
-  // 创建建筑（Campus 层）
-  // ======================
-  const buildingA = createBuildingInstance({
-    id: 'A',
-    name: '一号楼',
-    position: { x: 0, z: 0 }
-  });
+// 创建建筑（从 localStorage 恢复）
+// ======================
+  const persisted = loadBuildingsFromStorage();
+  if (persisted.length > 0) {
+    persisted.forEach(dto => createBuildingFromPersistData(dto));
+  } else {
+    // 第一次没有数据：给一个默认建筑 A（可选）
+    const dto = generateBuildingData({
+      id: 'A',
+      name: '一号楼',
+      position: { x: 0, z: 0 },
+      floors: 3,
+      roomsPerFloor: 2,
+      seatsPerRoom: 8
+    });
+    saveBuildingsToStorage([dto]);
+    createBuildingFromPersistData(dto);
+  }
 
-  createEmptyFloorGroups(buildingA);
-  buildings.push(buildingA);
-
-  // ❌ 不要设置 activeBuilding
   activeBuilding = null;
+
 
   // ======================
   // 环境
@@ -1587,6 +2152,7 @@ onMounted(() => {
   window.addEventListener('resize', handleResize);
   window.addEventListener('click', onMouseClick);
   window.addEventListener('mousemove', onMouseMove);
+  window.addEventListener('keydown', handleGhostKeyMove);
 });
 
 
@@ -1594,6 +2160,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize);
   window.removeEventListener('click', onMouseClick);
   window.removeEventListener('mousemove', onMouseMove);
+  window.removeEventListener('keydown', handleGhostKeyMove);
   if (animationId) cancelAnimationFrame(animationId);
   controls?.dispose();
   renderer?.dispose();
@@ -2185,6 +2752,85 @@ canvas {
     flex-direction: column;
     align-items: center;
     gap: 8px;
+  }
+}
+
+.placement-panel {
+  pointer-events: auto;
+  width: 240px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
+  border: 1px solid rgba(200, 220, 255, 0.9);
+
+  .panel-header {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 10px;
+  }
+
+  .panel-body {
+    .pos-row {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+
+      span {
+        color: #6b7280;
+      }
+
+      strong {
+        color: #2563eb;
+        font-weight: 600;
+      }
+    }
+
+    .hint {
+      margin-top: 8px;
+      font-size: 0.75rem;
+      color: #6b7280;
+    }
+  }
+
+  .panel-actions {
+    margin-top: 12px;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+
+    button {
+      flex: 1;
+      border: none;
+      border-radius: 999px;
+      padding: 6px 0;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-cancel {
+      background: #e5e7eb;
+      color: #374151;
+
+      &:hover {
+        background: #d1d5db;
+      }
+    }
+
+    .btn-confirm {
+      background: linear-gradient(135deg, #3b82f6, #60a5fa);
+      color: #f9fafb;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+
+      &:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 7px 18px rgba(37, 99, 235, 0.45);
+      }
+    }
   }
 }
 
