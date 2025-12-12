@@ -551,7 +551,7 @@ const createBuildingInstance = (config: {
     leftWall.userData = { type: 'ghostWall', side: 'left' };
     shellGroup.add(leftWall);
 
-    scene.add(shellGroup);
+    building.rootGroup.add(shellGroup);
     building.floorShellGroups.push(shellGroup);
   }
 
@@ -1588,6 +1588,18 @@ onMounted(() => {
   window.addEventListener('click', onMouseClick);
   window.addEventListener('mousemove', onMouseMove);
 });
+
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', handleResize);
+  window.removeEventListener('click', onMouseClick);
+  window.removeEventListener('mousemove', onMouseMove);
+  if (animationId) cancelAnimationFrame(animationId);
+  controls?.dispose();
+  renderer?.dispose();
+  composer?.dispose();
+});
+
 
 </script>
 
