@@ -59,6 +59,11 @@
               <span>签到记录</span>
             </el-menu-item>
 
+            <el-menu-item index="/admin/logs">
+              <el-icon><Finished /></el-icon>
+              <span>操作日志</span>
+            </el-menu-item>
+
             <el-divider style="margin: 20px 12px; border-color: rgba(255,255,255,0.1);" />
 
             <el-menu-item index="/home">
