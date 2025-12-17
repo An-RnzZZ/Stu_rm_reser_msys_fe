@@ -269,7 +269,7 @@ type BackendBuilding = {
 };
 
 type RoomDTO = {
-  id: string;
+  id: number;
   name: string;
   type: 'study' | 'info';
   position: { x: number; z: number };
@@ -556,41 +556,24 @@ const confirmGhostBuilding = () => {
 };
 
 
-const confirmCreateBuildingFinal = () => {
+const confirmCreateBuildingFinal = async () => {
   if (!ghostBuilding) return;
 
-  const dto = generateBuildingData({
-    id: addForm.id ? Number(addForm.id): -Date.now(),
-    name: addForm.name || '新建筑',
-    position: {
-      x: ghostBuilding.rootGroup.position.x,
-      z: ghostBuilding.rootGroup.position.z
-    },
-    floors: addForm.floors,
-    roomsPerFloor: addForm.roomsPerFloor,
-    seatsPerRoom: addForm.seatsPerRoom
+  await api.post('/building/add', {
+    buildingName: addForm.name || 'New Building',
+    buildingPosX: ghostBuilding.rootGroup.position.x,
+    buildingPosZ: ghostBuilding.rootGroup.position.z,
+    buildingFloors: addForm.floors,
+    buildingRoomsPerFloor: addForm.roomsPerFloor,
+    buildingSeatsPerRoom: addForm.seatsPerRoom
   });
-
-  // 本地保存（或未来换成后端）
-  const all = loadBuildingsFromStorage();
-  all.push(dto);
-  saveBuildingsToStorage(all);
 
   // 移除幽灵
   scene.remove(ghostBuilding.rootGroup);
   ghostBuilding = null;
 
-  // 创建正式建筑
-  const newBuilding = createBuildingFromPersistData(dto);
-  if (!newBuilding) return;
-
-  // 进入建筑视图
-  activeBuilding = newBuilding;
-  viewMode.value = 'building';
-  buildings.forEach(b => (b.rootGroup.visible = b === newBuilding));
-
-  // 镜头飞过去
-  flyCameraToBuilding(newBuilding, { distance: 60, height: 50 });
+  // 🔥 核心：重新从后端拉真实建筑数据
+  await loadBuildingsFromBackend();
 
   adminMode.value = 'normal';
   showBuildingConfigModal.value = false;
@@ -623,7 +606,7 @@ const generateBuildingData = (form: {
       const seats: any[] = [];
       for (let s = 0; s < form.seatsPerRoom; s++) {
         seats.push({
-          id: `${roomId}-S${s + 1}`,
+          id: `S${s + 1}`,
           number: s + 1,
           x: (s % 4) * 1.2,                 // 每排 4 个
           y: Math.floor(s / 4) * 1.2,       // 这里的 y 你当 z 用
@@ -1390,7 +1373,7 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
     unitGroup.userData = {
       type: 'seat',
       // 展示用编号：roomId-S{number}
-      id: `${roomDTO.id}-S${seatDTO.number}`,
+      id: `S${seatDTO.number}`,
       number: seatDTO.number,
       floor: floorNum,
 
