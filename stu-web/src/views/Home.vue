@@ -33,7 +33,10 @@
               <el-icon><Check /></el-icon>
               <span>签到签退</span>
             </el-menu-item>
-
+            <el-menu-item index="/my-violations">
+              <el-icon><Warning /></el-icon>
+              <span>我的违规</span>
+            </el-menu-item>
           </el-menu>
         </el-aside>
 
@@ -70,7 +73,7 @@
 </template>
 
 <script setup lang="ts">
-import { House, Calendar, Document, School ,Check} from '@element-plus/icons-vue'
+import { House, Calendar, Document, School ,Check , Warning} from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
 

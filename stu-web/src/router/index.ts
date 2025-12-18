@@ -75,6 +75,12 @@ component: () => import('../views/Login.vue'),
     }
   },
   {
+    path: '/my-violations',
+    name: 'my-violations',
+    component: () => import('../views/MyViolations.vue'),
+    meta: { requiresAuth: true, title: '我的违规记录', keepAlive: true }
+  },
+  {
     path: '/admin/login',
     name: 'admin-login',
     component: () => import('../views/admin/AdminLogin.vue'),
@@ -120,6 +126,18 @@ component: () => import('../views/Login.vue'),
         name: 'admin-signs',
         component: () => import('../views/admin/SignManage.vue'),
         meta: { requiresAdmin: true, title: '签到记录 - 管理后台' }
+      } ,
+      {
+        path: 'violations',
+        name: 'admin-violations',
+        component: () => import('../views/admin/ViolationManage.vue'),
+        meta: { requiresAdmin: true, title: '违规管理 - 管理后台' }
+      },
+      {
+        path: 'appeals',
+        name: 'admin-appeals',
+        component: () => import('../views/admin/AppealManage.vue'),
+        meta: { requiresAdmin: true, title: '申诉管理 - 管理后台' }
       }
     ]
   },
