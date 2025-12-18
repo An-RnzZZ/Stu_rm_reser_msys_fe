@@ -1,6 +1,10 @@
 <template>
   <div class="scene-container" ref="canvasContainer">
-    <canvas ref="canvasRef"></canvas>
+    <canvas
+      ref="canvasRef"
+      :class="{ 'canvas-disabled': isModalOpen }"
+    />
+
 
     <!-- ================== 加载中 ================== -->
     <div v-if="loading" class="loading-overlay">
@@ -66,8 +70,18 @@
           >
             ➕ 新增建筑
           </button>
+
+          <!-- ⭐ 新增：删除建筑 -->
+          <button
+            v-if="viewMode === 'building'"
+            @click="confirmDeleteBuilding"
+            class="back-btn danger"
+          >
+            🗑 删除该建筑
+          </button>
         </div>
       </transition>
+
 
       <!-- ===== 楼层选择 ===== -->
       <transition name="fade">
@@ -174,6 +188,16 @@
         <h2>确认建筑配置</h2>
 
         <div class="form-row">
+          <label>建筑名称</label>
+          <input
+            type="text"
+            v-model.trim="addForm.name"
+            placeholder="请输入建筑名称"
+          />
+        </div>
+
+
+        <div class="form-row">
           <label>楼层数</label>
           <input type="number" v-model.number="addForm.floors" min="1" />
         </div>
@@ -213,7 +237,7 @@
 
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, reactive } from 'vue';
+import { ref, onMounted, onBeforeUnmount, reactive, computed, watch } from 'vue';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -225,6 +249,8 @@ import gsap from 'gsap';
 import axios from 'axios';
 
 // --- 状态管理 ---
+
+const totalFloors = ref(0); // ✅ 新增：左侧楼层按钮数量
 
 const showBuildingConfigModal = ref(false);
 // 新增建筑表单
@@ -257,6 +283,11 @@ const ghostPosX = ref(0);
 const ghostPosZ = ref(0);
 
 const timeTicks = ref(['08:00', '12:00', '16:00', '20:00', '22:00']); // 时间刻度
+// ======================
+// 幽灵墙 Padding（只影响可视，不影响后端）
+// ======================
+const SHELL_PADDING_X = 2.5;   // 左右
+const SHELL_PADDING_Z = 4.0;   // 前后（一定要大于 X）
 
 // 座位管理弹窗
 const showSeatAdminModal = ref(false);
@@ -325,7 +356,17 @@ const mapBackendBuildingToConfig = (b: BackendBuilding) => {
   };
 };
 
+const isModalOpen = computed(() => {
+  return showSeatAdminModal.value || showBuildingConfigModal.value;
 
+});
+
+watch(isModalOpen, (open) => {
+  // ⚠️ controls 可能还没初始化，所以一定要判空
+  if (controls) {
+    controls.enabled = !open;
+  }
+});
 // 新增：更新时间刻度（根据动态时间范围）
 const updateTimeTicks = (startMin, endMin) => {
   const duration = endMin - startMin;
@@ -502,25 +543,44 @@ const confirmGhostBuilding = () => {
 const confirmCreateBuildingFinal = async () => {
   if (!ghostBuilding) return;
 
-  await api.post('/building/add', {
-    buildingName: addForm.name || 'New Building',
-    buildingPosX: ghostBuilding.rootGroup.position.x,
-    buildingPosZ: ghostBuilding.rootGroup.position.z,
-    buildingFloors: addForm.floors,
-    buildingRoomsPerFloor: addForm.roomsPerFloor,
-    buildingSeatsPerRoom: addForm.seatsPerRoom
-  });
+  // 🔒 校验建筑名
+  if (!addForm.name || addForm.name.trim().length === 0) {
+    alert('请输入建筑名称');
+    return;
+  }
 
-  // 移除幽灵
-  scene.remove(ghostBuilding.rootGroup);
-  ghostBuilding = null;
+  try {
+    await api.post('/building/add', {
+      buildingName: addForm.name.trim(),
+      buildingPosX: ghostBuilding.rootGroup.position.x,
+      buildingPosZ: ghostBuilding.rootGroup.position.z,
+      buildingFloors: addForm.floors,
+      buildingRoomsPerFloor: addForm.roomsPerFloor,
+      buildingSeatsPerRoom: addForm.seatsPerRoom
+    });
 
-  // 🔥 核心：重新从后端拉真实建筑数据
-  await loadBuildingsFromBackend();
+    // 移除幽灵
+    scene.remove(ghostBuilding.rootGroup);
+    ghostBuilding = null;
 
-  adminMode.value = 'normal';
-  showBuildingConfigModal.value = false;
+    // 重拉建筑
+    await loadBuildingsFromBackend();
+
+    adminMode.value = 'normal';
+    showBuildingConfigModal.value = false;
+
+    // 🧹 重置表单
+    addForm.name = '';
+    addForm.floors = 3;
+    addForm.roomsPerFloor = 2;
+    addForm.seatsPerRoom = 20;
+
+  } catch (e) {
+    console.error('create building failed:', e);
+    alert('创建建筑失败，请查看后端日志');
+  }
 };
+
 
 
 const getActiveBuildingCenter = () => {
@@ -939,13 +999,19 @@ const createBuildingInstance = (config: {
 
   for (let i = 0; i < floors; i++) {
     const floorY = i * FLOOR_LEVEL_HEIGHT + FLOOR_LEVEL_HEIGHT / 2;
-    const floorSizeXY = width * 0.9 - i * 0.5;
-    const floorSizeZ = depth * 0.9- i * 0.5;;
+    const baseFloorSizeX = width * 0.9 - i * 0.5;   // 实体结构尺寸
+    const baseFloorSizeZ = depth * 0.9 - i * 0.5;
+
+// ⭐ 幽灵墙用“扩展后的尺寸”
+    const shellSizeX = baseFloorSizeX + SHELL_PADDING_X * 2;
+    const shellSizeZ = baseFloorSizeZ + SHELL_PADDING_Z * 2;
+
     const wallGeo = new THREE.BoxGeometry(
-      floorSizeXY,
+      baseFloorSizeX,
       FLOOR_LEVEL_HEIGHT,
-      floorSizeZ
+      baseFloorSizeZ
     );
+
     const floorMesh = new THREE.Mesh(wallGeo, materials.buildingWall.clone());
     floorMesh.position.y = floorY;
     floorMesh.castShadow = true;
@@ -965,46 +1031,51 @@ const createBuildingInstance = (config: {
     const shellGroup = new THREE.Group();
     shellGroup.name = `Floor_${i + 1}_Shell`;
     shellGroup.visible = false;
-    const ghostMatBase = materials.ghostWall;
 
+// ⭐ 把整组放到这一层的高度
+    shellGroup.position.y = floorY;
+
+    const ghostMatBase = materials.ghostWall;
+    const THICK = 0.15;
+    const EPS = 0.02;
+
+// 前
     const frontWall = new THREE.Mesh(
-      new THREE.PlaneGeometry(floorSizeXY, FLOOR_LEVEL_HEIGHT),
+      new THREE.BoxGeometry(shellSizeX, FLOOR_LEVEL_HEIGHT, THICK),
       ghostMatBase.clone()
     );
-    frontWall.position.set(0, floorY, floorSizeXY / 2 + 0.01);
-    frontWall.userData = { type: 'ghostWall', side: 'front' };
+    frontWall.position.set(0, 0, shellSizeZ / 2 + THICK / 2 + EPS);
     shellGroup.add(frontWall);
 
+// 后
     const backWall = new THREE.Mesh(
-      new THREE.PlaneGeometry(floorSizeXY, FLOOR_LEVEL_HEIGHT),
+      new THREE.BoxGeometry(shellSizeX, FLOOR_LEVEL_HEIGHT, THICK),
       ghostMatBase.clone()
     );
-    backWall.position.set(0, floorY, -floorSizeXY / 2 - 0.01);
-    backWall.rotation.y = Math.PI;
-    backWall.userData = { type: 'ghostWall', side: 'back' };
+    backWall.position.set(0, 0, -shellSizeZ / 2 - THICK / 2 - EPS);
     shellGroup.add(backWall);
 
+// 右
     const rightWall = new THREE.Mesh(
-      new THREE.PlaneGeometry(floorSizeXY, FLOOR_LEVEL_HEIGHT),
+      new THREE.BoxGeometry(THICK, FLOOR_LEVEL_HEIGHT, shellSizeZ),
       ghostMatBase.clone()
     );
-    rightWall.position.set(floorSizeXY / 2 + 0.01, floorY, 0);
-    rightWall.rotation.y = -Math.PI / 2;
-    rightWall.userData = { type: 'ghostWall', side: 'right' };
-    rightWall.material.opacity = 0.06; // 右侧更虚
+    rightWall.position.set(shellSizeX / 2 + THICK / 2 + EPS, 0, 0);
+    rightWall.material.opacity = 0.06;
     shellGroup.add(rightWall);
 
+// 左
     const leftWall = new THREE.Mesh(
-      new THREE.PlaneGeometry(floorSizeXY, FLOOR_LEVEL_HEIGHT),
+      new THREE.BoxGeometry(THICK, FLOOR_LEVEL_HEIGHT, shellSizeZ),
       ghostMatBase.clone()
     );
-    leftWall.position.set(-floorSizeXY / 2 - 0.01, floorY, 0);
-    leftWall.rotation.y = Math.PI / 2;
-    leftWall.userData = { type: 'ghostWall', side: 'left' };
+    leftWall.position.set(-shellSizeX / 2 - THICK / 2 - EPS, 0, 0);
     shellGroup.add(leftWall);
 
+// ✅ 挂在 building 上（不是 floorMesh）
     building.rootGroup.add(shellGroup);
     building.floorShellGroups.push(shellGroup);
+
   }
 
   const roofBaseSizeXY = width * 0.9 - (floors - 1) * 0.5;
@@ -1087,13 +1158,28 @@ const createEnvironment = () => {
 
 };
 
-const toggleSeatEnable = () => {
+const toggleSeatEnable = async () => {
   const seat = adminSeat.value;
   if (!seat) return;
 
-  // ⭐ 只刷新材质，不动 status
-  applySeatMaterialByEnabled(seat);
+  // 切换状态
+  seat.userData.enabled = !seat.userData.enabled;
+
+  // 发送禁用/启用请求到后端
+  try {
+    await api.put('/seat/update', {
+      seatId: seat.userData.backendSeatId,  // 后端座位 ID
+      seatEnabled: seat.userData.enabled         // 更新的状态
+    });
+
+    // 更新材质
+    applySeatMaterialByEnabled(seat);
+  } catch (error) {
+    console.error('Failed to update seat status:', error);
+    // 处理错误，例如弹出提示用户更新失败
+  }
 };
+
 
 
 const closeSeatAdmin = () => {
@@ -1182,8 +1268,8 @@ const computeSeatStatusByFilter = (seat) => {
 const applySeatMaterialByEnabled = (seat) => {
   const mat =
     seat.userData.enabled === false
-      ? materials.seatDisabled
-      : materials.seatFree;
+      ? materials.seatDisabled  // 如果禁用，设置禁用样式
+      : materials.seatFree;     // 如果启用，设置正常样式
 
   seat.traverse((child) => {
     if (!child.isMesh) return;
@@ -1193,6 +1279,25 @@ const applySeatMaterialByEnabled = (seat) => {
 };
 
 
+
+
+const updateSeatStatus = async (seatId, enabled) => {
+  try {
+    const response = await api.post('/seat/update', {
+      seatId,
+      enabled
+    });
+
+    // 根据后端返回结果进行处理（成功、失败）
+    if (response.data.code === 200) {
+      console.log('Seat status updated successfully');
+    } else {
+      console.error('Failed to update seat status');
+    }
+  } catch (error) {
+    console.error('Error updating seat status:', error);
+  }
+};
 
 // 对当前楼层所有座位应用筛选规则
 const applyTimeFilterToCurrentFloorSeats = () => {
@@ -1514,7 +1619,7 @@ const resizeByContainer = () => {
 
 // --- 交互：鼠标移动 ---
 const onMouseMove = (event: MouseEvent) => {
-  if (loading.value) return;
+  if (loading.value || isModalOpen.value) return; // ✅ 加这一句
   if (!canvasRef.value) return;
 
   updateMouseByCanvas(event);
@@ -1640,7 +1745,7 @@ const updateMouseByCanvas = (event: MouseEvent) => {
 
 // --- 点击 ---
 const onMouseClick = (event: MouseEvent) => {
-  if (loading.value) return;
+  if (loading.value || isModalOpen.value) return; // ✅ 加这一句
   if (!canvasRef.value) return;
 
   const rect = canvasRef.value.getBoundingClientRect();
@@ -1707,6 +1812,8 @@ const onMouseClick = (event: MouseEvent) => {
 // --- 进入楼层视图 ---
 const enterFloorView = (floorNum) => {
   viewMode.value = 'floor';
+  // ✅ 兜底：防止某些路径没走 enterBuildingView
+  if (activeBuilding) totalFloors.value = activeBuilding.floors;
   currentFloor.value = floorNum;
   freezeTooltip.value = true;
   selectedOutlineObjects = [];
@@ -1864,6 +1971,7 @@ const syncCampusVisibility = () => {
 const resetView = () => {
   viewMode.value = 'campus';
   currentFloor.value = 1;
+  totalFloors.value = 0; // ✅ 清掉
   activeBuilding = null;
 
   freezeTooltip.value = true;
@@ -2017,8 +2125,9 @@ const handleSeatClick = (seat) => {
 
 const enterBuildingView = (building: BuildingInstance) => {
   activeBuilding = building;
-  viewMode.value = 'building';
+  totalFloors.value = building.floors; // ✅ 关键：更新楼层按钮数量
 
+  viewMode.value = 'building';
   freezeTooltip.value = true;
   selectedOutlineObjects = [];
   outlinePass.selectedObjects = [];
@@ -2027,9 +2136,9 @@ const enterBuildingView = (building: BuildingInstance) => {
     b.rootGroup.visible = b === building;
   });
 
-  // ⭐ 关键：使用通用飞行函数
   flyCameraToBuilding(building);
 };
+
 
 
 
@@ -2117,6 +2226,36 @@ const initDefaultTimeFilter = () => {
   const endIdx = Math.min(idx + 2, slots.length - 1); // 默认 +1 小时
   timeFilter.end = slots[endIdx];
 };
+
+const confirmDeleteBuilding = async () => {
+  if (!activeBuilding) return;
+
+  const ok = window.confirm(
+    `确认删除建筑「${activeBuilding.name}」？\n\n⚠️ 该操作将删除该建筑下所有楼层、房间和座位，且不可恢复。`
+  );
+  if (!ok) return;
+
+  try {
+    await api.delete(`/building/${activeBuilding.id}`);
+
+    // 从 Three.js 场景移除
+    scene.remove(activeBuilding.rootGroup);
+
+    // 从本地数组移除
+    const idx = buildings.findIndex(b => b.id === activeBuilding!.id);
+    if (idx !== -1) buildings.splice(idx, 1);
+
+    activeBuilding = null;
+
+    // 回到 campus 视图
+    resetView();
+
+  } catch (e) {
+    console.error('delete building failed:', e);
+    alert('删除失败，请查看后端日志');
+  }
+};
+
 
 // 时间筛选变化时：重新从后端拉取当前楼层布局
 const applyTimeFilter = async () => {
@@ -2450,7 +2589,7 @@ canvas {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 30;
+  z-index: 999;
 }
 
 .reservation-dialog {
@@ -2551,6 +2690,10 @@ canvas {
   }
 }
 
+
+.canvas-disabled {
+  pointer-events: none; // ✅ 弹窗打开时，canvas 完全不吃鼠标
+}
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s;
@@ -2723,6 +2866,16 @@ canvas {
   align-items: center;
   font-size: 0.8rem;
   color: #4b5563;
+}
+
+
+.back-btn.danger {
+  background: linear-gradient(135deg, #ef4444, #f87171);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.4);
+}
+
+.back-btn.danger:hover {
+  box-shadow: 0 10px 24px rgba(220, 38, 38, 0.55);
 }
 
 .color-dot {
