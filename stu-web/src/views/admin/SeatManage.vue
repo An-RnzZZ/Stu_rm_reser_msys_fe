@@ -227,6 +227,13 @@ import axios from 'axios';
 // --- 状态管理 ---
 
 const showBuildingConfigModal = ref(false);
+// 新增建筑表单
+const addForm = reactive({
+  name: '',
+  floors: 3,
+  roomsPerFloor: 2,
+  seatsPerRoom: 20
+});
 
 const canvasRef = ref(null);
 const canvasContainer = ref(null);
@@ -291,6 +298,19 @@ type ResponseMessage<T> = {
   data: T;
 };
 
+
+const enterAddBuildingMode = () => {
+  // 只有在 campus 才允许放置
+  if (viewMode.value !== 'campus') return;
+
+  adminMode.value = 'placingBuilding';
+
+  // 给一个默认名字也行（可选）
+  if (!addForm.name) addForm.name = 'New Building';
+
+  startGhostBuilding();
+};
+
 // 把后端 Building 转成 createBuildingInstance 需要的 config
 const mapBackendBuildingToConfig = (b: BackendBuilding) => {
   return {
@@ -303,48 +323,6 @@ const mapBackendBuildingToConfig = (b: BackendBuilding) => {
     width: b.buildingWidth,
     depth: b.buildingDepth
   };
-};
-
-const showAddBuildingModal = ref(false);
-const addForm = reactive({
-  id: '',
-  name: '',
-  x: 0,
-  z: 0,
-  floors: 3,
-  roomsPerFloor: 2,
-  seatsPerRoom: 8
-});
-
-const confirmAddBuildingLocal = () => {
-  const id = addForm.id.trim();
-  const name = addForm.name.trim();
-  if (!id || !name) {
-    alert('请填写建筑ID和名称');
-    return;
-  }
-
-  const all = loadBuildingsFromStorage();
-  if (all.some(b => b.id === id)) {
-    alert('建筑ID已存在');
-    return;
-  }
-
-  const dto = generateBuildingData({
-    id,
-    name,
-    position: { x: Number(addForm.x) || 0, z: Number(addForm.z) || 0 },
-    floors: Number(addForm.floors) || 3,
-    roomsPerFloor: Number(addForm.roomsPerFloor) || 2,
-    seatsPerRoom: Number(addForm.seatsPerRoom) || 8
-  });
-
-  all.push(dto);
-  saveBuildingsToStorage(all);
-
-  createBuildingFromPersistData(dto);
-
-  showAddBuildingModal.value = false;
 };
 
 
@@ -442,41 +420,6 @@ const parseTimeStr = (str) => {
   return h * 60 + m;
 };
 
-
-type BuildingPersistDTO = {
-  id: number;
-  name: string;
-  position: { x: number; z: number };
-  floors: number;
-  layout: Record<number, any[]>;
-};
-
-const STORAGE_KEY = 'admin_buildings_v1';
-
-const loadBuildingsFromStorage = (): BuildingPersistDTO[] => {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : [];
-  } catch (e) {
-    console.warn('load storage failed', e);
-    return [];
-  }
-};
-
-const saveBuildingsToStorage = (list: BuildingPersistDTO[]) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-};
-
-const enterAddBuildingMode = () => {
-  // 🚨 只允许在 campus
-  if (viewMode.value !== 'campus') return;
-
-  // 🚨 防止重复进入
-  if (adminMode.value === 'placingBuilding') return;
-
-  adminMode.value = 'placingBuilding';
-  startGhostBuilding();
-};
 
 
 const startGhostBuilding = () => {
@@ -586,76 +529,6 @@ const getActiveBuildingCenter = () => {
   activeBuilding.rootGroup.getWorldPosition(c);
   return c;
 };
-
-const generateBuildingData = (form: {
-  id:number;
-  name: string;
-  position: { x: number; z: number };
-  floors: number;
-  roomsPerFloor: number;
-  seatsPerRoom: number;
-}): BuildingPersistDTO => {
-  const layout: Record<number, any[]> = {};
-
-  for (let f = 1; f <= form.floors; f++) {
-    const rooms: any[] = [];
-
-    for (let r = 0; r < form.roomsPerFloor; r++) {
-      const roomId = `${form.id}-F${f}-R${r + 1}`;
-
-      const seats: any[] = [];
-      for (let s = 0; s < form.seatsPerRoom; s++) {
-        seats.push({
-          id: `S${s + 1}`,
-          number: s + 1,
-          x: (s % 4) * 1.2,                 // 每排 4 个
-          y: Math.floor(s / 4) * 1.2,       // 这里的 y 你当 z 用
-          enabled: true,
-          resvSummary: []
-        });
-      }
-
-      rooms.push({
-        id: roomId,
-        name: `房间 ${r + 1}`,
-        type: 'study',
-        position: { x: r * 14 - 14, z: 0 },  // 房间间距 14
-        size: { width: 10, depth: 8 },
-        seats
-      });
-    }
-
-    layout[f] = rooms;
-  }
-
-  return {
-    id: form.id,
-    name: form.name,
-    position: form.position,
-    floors: form.floors,
-    layout
-  };
-};
-
-const createBuildingFromPersistData = (dto: BuildingPersistDTO): BuildingInstance | null => {
-  if (buildings.some(b => b.id === dto.id)) return null;
-
-  const building = createBuildingInstance({
-    id: dto.id,
-    name: dto.name,
-    position: dto.position,
-    floors: dto.floors,
-  });
-
-  createEmptyFloorGroups(building);
-  building.__layout = dto.layout;
-  buildings.push(building);
-
-  building.rootGroup.visible = viewMode.value === 'campus';
-
-  return building;
-};
-
 
 
 
@@ -875,66 +748,71 @@ const initScene = () => {
 
 
 const createWindowsForBuilding = (building: BuildingInstance) => {
-  building.rootGroup.traverse((child) => {
-    if (child.userData && child.userData.type === 'floor') {
-      const floor = child;
-      const floorY = floor.position.y;
+  building.floorStructureMeshes.forEach((floorMesh, i) => {
+    const floorNum = i + 1;
 
-      const floorWidth = building.width * 0.9 - building.floors * 0.5;
-      const floorDepth = building.depth * 0.9 - building.floors * 0.5;
+    // ✅ 与 createBuildingInstance 里墙体尺寸完全一致
+    const floorSizeX = building.width * 0.9 - i * 0.5;
+    const floorSizeZ = building.depth * 0.9 - i * 0.5;
 
-      const windowHeight = FLOOR_LEVEL_HEIGHT * 0.6;
-      const windowThickness = 0.1;
-      const windowRatio = 0.7;
+    const windowHeight = FLOOR_LEVEL_HEIGHT * 0.6;
+    const windowThickness = 0.12;
+    const windowRatio = 0.7;
 
-      const isGhostBuilding = building.rootGroup.userData.isGhost;
-      const windowMaterial = isGhostBuilding
-        ? new THREE.MeshStandardMaterial({
-          color: 0xa9bed8,
-          transparent: true,
-          opacity: 0.25,
-          roughness: 0.7,
-          metalness: 0.08
-        })
-        : materials.buildingWindow;
+    const isGhostBuilding = building.rootGroup.userData.isGhost;
+    const windowMaterial = isGhostBuilding
+      ? new THREE.MeshStandardMaterial({
+        color: 0xa9bed8,
+        transparent: true,
+        opacity: 0.25,
+        roughness: 0.7,
+        metalness: 0.08
+      })
+      : materials.buildingWindow.clone();
 
-      // 定义外部偏移量
-      const externalOffset = 0.2;  // 调整这个值来改变窗户的外部位置
+    // ✅ 外贴一点点，确保“贴在墙外表面”看得到
+    const eps = 0.02;
 
-      // 创建窗户
-      const frontBackWindowGeo = new THREE.BoxGeometry(
-        floorWidth * windowRatio,
-        windowHeight,
-        windowThickness
-      );
-      const frontWindow = new THREE.Mesh(frontBackWindowGeo, windowMaterial);
-      frontWindow.position.set(0, floorY, floorDepth / 2 + windowThickness / 2 + externalOffset);  // 增加偏移量
+    // 建一个容器，方便后面统一更新/删除
+    const winGroup = new THREE.Group();
+    winGroup.name = `Floor_${floorNum}_Windows`;
+    winGroup.userData = { type: 'windowGroup', floorNumber: floorNum };
 
-      const backWindow = frontWindow.clone();
-      backWindow.position.z *= -1;
-      backWindow.position.z += externalOffset;  // 增加偏移量
+    // 前后窗
+    const fbGeo = new THREE.BoxGeometry(
+      floorSizeX * windowRatio,
+      windowHeight,
+      windowThickness
+    );
+    const front = new THREE.Mesh(fbGeo, windowMaterial);
+    front.position.set(0, 0, floorSizeZ / 2 + windowThickness / 2 + eps);
+    front.userData = { type: 'window', side: 'front', floorNumber: floorNum };
 
-      const leftRightWindowGeo = new THREE.BoxGeometry(
-        windowThickness,
-        windowHeight,
-        floorDepth * windowRatio
-      );
-      const rightWindow = new THREE.Mesh(leftRightWindowGeo, windowMaterial);
-      rightWindow.position.set(floorWidth / 2 + windowThickness / 2 + externalOffset, floorY, 0);  // 增加偏移量
+    const back = new THREE.Mesh(fbGeo, windowMaterial);
+    back.position.set(0, 0, -(floorSizeZ / 2 + windowThickness / 2 + eps));
+    back.userData = { type: 'window', side: 'back', floorNumber: floorNum };
 
-      const leftWindow = rightWindow.clone();
-      leftWindow.position.x *= -1;
-      leftWindow.position.x += externalOffset;  // 增加偏移量
+    // 左右窗
+    const lrGeo = new THREE.BoxGeometry(
+      windowThickness,
+      windowHeight,
+      floorSizeZ * windowRatio
+    );
+    const right = new THREE.Mesh(lrGeo, windowMaterial);
+    right.position.set(floorSizeX / 2 + windowThickness / 2 + eps, 0, 0);
+    right.userData = { type: 'window', side: 'right', floorNumber: floorNum };
 
-      // 将窗户添加到建筑
-      building.rootGroup.add(frontWindow, backWindow, rightWindow, leftWindow);
+    const left = new THREE.Mesh(lrGeo, windowMaterial);
+    left.position.set(-(floorSizeX / 2 + windowThickness / 2 + eps), 0, 0);
+    left.userData = { type: 'window', side: 'left', floorNumber: floorNum };
 
-      if (isGhostBuilding) {
-        frontWindow.layers.set(1);
-        backWindow.layers.set(1);
-        rightWindow.layers.set(1);
-        leftWindow.layers.set(1);
-      }
+    // ✅ 关键：挂到 floorMesh 上（窗户会跟着每层一起移动/隐藏）
+    winGroup.add(front, back, right, left);
+    floorMesh.add(winGroup);
+
+    // 幽灵建筑放到 layer 1（你原来逻辑保持）
+    if (isGhostBuilding) {
+      winGroup.traverse(obj => obj.layers.set(1));
     }
   });
 };
@@ -973,27 +851,41 @@ const handleGhostKeyMove = (e: KeyboardEvent) => {
 };
 
 // 更新窗户的位置
-const updateWindowsPosition = (ghostBuilding: BuildingInstance) => {
-  ghostBuilding.rootGroup.traverse((child) => {
-    if (child.userData && child.userData.type === 'floor') {
-      const floor = child;
-      const floorWidth = ghostBuilding.width * 0.9 - ghostBuilding.floors * 0.5;
-      const floorDepth = ghostBuilding.depth * 0.9 - ghostBuilding.floors * 0.5;
-      const floorY = floor.position.y;
+const updateWindowsPosition = (b: BuildingInstance) => {
+  b.floorStructureMeshes.forEach((floorMesh, i) => {
+    const floorSizeX = b.width * 0.9 - i * 0.5;
+    const floorSizeZ = b.depth * 0.9 - i * 0.5;
 
-      // 更新前后窗位置
-      floor.children.forEach((window) => {
-        if (window.userData?.type === 'window') {
-          if (window.position.z > 0) {
-            window.position.z = floorDepth / 2 + 0.05;
-          } else {
-            window.position.z = -floorDepth / 2 - 0.05;
-          }
-        }
-      });
-    }
+    const windowThickness = 0.12;
+    const windowRatio = 0.7;
+    const eps = 0.02;
+
+    // 找到这一层的 windowGroup
+    const winGroup = floorMesh.children.find(
+      c => c.userData?.type === 'windowGroup'
+    ) as THREE.Group | undefined;
+    if (!winGroup) return;
+
+    winGroup.traverse((obj: any) => {
+      if (!obj.isMesh || obj.userData?.type !== 'window') return;
+
+      const side = obj.userData.side;
+      if (side === 'front') {
+        obj.position.set(0, 0, floorSizeZ / 2 + windowThickness / 2 + eps);
+        // 重新设置几何，防止尺寸不匹配
+        obj.geometry.dispose();
+        obj.geometry = new THREE.BoxGeometry(floorSizeX * windowRatio, obj.geometry.parameters.height ?? FLOOR_LEVEL_HEIGHT * 0.6, windowThickness);
+      } else if (side === 'back') {
+        obj.position.set(0, 0, -(floorSizeZ / 2 + windowThickness / 2 + eps));
+      } else if (side === 'right') {
+        obj.position.set(floorSizeX / 2 + windowThickness / 2 + eps, 0, 0);
+      } else if (side === 'left') {
+        obj.position.set(-(floorSizeX / 2 + windowThickness / 2 + eps), 0, 0);
+      }
+    });
   });
 };
+
 
 
 
@@ -1177,24 +1069,6 @@ const createBuildingFromBackend = (b: BackendBuilding) => {
 
 
 
-const confirmAddBuilding = async () => {
-  const res = await api.post<ResponseMessage<BackendBuilding> | BackendBuilding>(
-    '/admin/buildings',
-    {
-      buildingName: addForm.name,      // 这里字段名看你后端接收什么
-      buildingPosX: Number(addForm.x),
-      buildingPosZ: Number(addForm.z),
-      buildingFloors: addForm.floors,
-      buildingRoomsPerFloor: addForm.roomsPerFloor,
-      buildingSeatsPerRoom: addForm.seatsPerRoom,
-      buildingWidth: DEFAULT_WIDTH,
-      buildingDepth: DEFAULT_DEPTH,
-    }
-  );
-
-  const payload = (res.data as any).data ?? res.data; // ✅ 包裹/不包裹都支持
-  createBuildingFromBackend(payload as BackendBuilding);
-};
 
 // --- 环境 ---
 const createEnvironment = () => {
@@ -2277,28 +2151,6 @@ onMounted(async ()  => {
   // Three.js 场景初始化
   // ======================
   initScene();
-
-  // ======================
-// 创建建筑（从 localStorage 恢复）
-// ======================
-//   const persisted = loadBuildingsFromStorage();
-//   if (persisted.length > 0) {
-//     persisted.forEach(dto => createBuildingFromPersistData(dto));
-//   } else {
-//     // 第一次没有数据：给一个默认建筑 A（可选）
-//     const dto = generateBuildingData({
-//       id: 'A',
-//       name: '一号楼',
-//       position: { x: 0, z: 0 },
-//       floors: 3,
-//       roomsPerFloor: 2,
-//       seatsPerRoom: 8
-//     });
-//     saveBuildingsToStorage([dto]);
-//     createBuildingFromPersistData(dto);
-//   }
-
-
 
 
   // ======================
