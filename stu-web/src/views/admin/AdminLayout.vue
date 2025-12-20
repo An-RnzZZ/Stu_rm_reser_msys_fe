@@ -60,7 +60,7 @@
             </el-menu-item>
 
             <el-menu-item index="/admin/logs">
-              <el-icon><Finished /></el-icon>
+              <el-icon><Document /></el-icon> <!-- 操作日志改用文档图标 -->
               <span>操作日志</span>
             </el-menu-item>
 
@@ -96,7 +96,8 @@ import {
   Calendar,
   Grid,
   Finished,
-  HomeFilled
+  HomeFilled,
+  Document
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
