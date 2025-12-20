@@ -47,7 +47,7 @@ component: () => import('../views/Login.vue'),
   {
     path: '/reservation',
     name: 'reservation',
-    component: () => import('../views/RoomBooking.vue'),
+    component: () => import('../views/RoomBooking_1.vue'),
     meta: {
       requiresAuth: true,
       title: '预约座位',

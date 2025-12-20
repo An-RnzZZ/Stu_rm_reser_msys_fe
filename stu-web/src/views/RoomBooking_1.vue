@@ -1,10 +1,6 @@
 <template>
   <div class="scene-container" ref="canvasContainer">
-    <canvas
-      ref="canvasRef"
-      :class="{ 'canvas-disabled': isModalOpen }"
-    />
-
+    <canvas ref="canvasRef" :class="{ 'canvas-disabled': isModalOpen }" />
 
     <!-- ================== 加载中 ================== -->
     <div v-if="loading" class="loading-overlay">
@@ -14,76 +10,16 @@
 
     <!-- ================== UI 悬浮层 ================== -->
     <div class="ui-overlay" :class="{ 'ui-hidden': loading }">
-
-      <!-- ===== 新建筑放置面板 ===== -->
-      <div
-        v-if="adminMode === 'placingBuilding'"
-        class="placement-panel"
-        @mousedown.stop
-        @mouseup.stop
-        @click.stop
-      >
-        <div class="panel-header">
-          🏗 新建筑放置
-        </div>
-
-        <div class="panel-body">
-          <div class="pos-row">
-            <span>X</span>
-            <strong>{{ ghostPosX.toFixed(1) }}</strong>
-          </div>
-          <div class="pos-row">
-            <span>Z</span>
-            <strong>{{ ghostPosZ.toFixed(1) }}</strong>
-          </div>
-
-          <div class="hint">
-            使用方向键微调位置（Shift 加速）
-          </div>
-        </div>
-
-        <div class="panel-actions">
-          <button class="btn-cancel" @click="cancelGhostBuilding">
-            取消
-          </button>
-          <button class="btn-confirm" @click="confirmGhostBuilding">
-            确认放置
-          </button>
-        </div>
-      </div>
-
-      <!-- ===== 顶部按钮 ===== -->
+      <!-- 顶部按钮 -->
       <transition name="fade">
         <div>
-          <button
-            v-if="viewMode !== 'campus'"
-            @click="resetView"
-            class="back-btn"
-          >
+          <button v-if="viewMode !== 'campus'" @click="resetView" class="back-btn">
             ← 返回建筑概览
-          </button>
-
-          <button
-            v-if="viewMode === 'campus'"
-            @click="enterAddBuildingMode"
-            class="back-btn"
-          >
-            ➕ 新增建筑
-          </button>
-
-          <!-- ⭐ 新增：删除建筑 -->
-          <button
-            v-if="viewMode === 'building'"
-            @click="confirmDeleteBuilding"
-            class="back-btn danger"
-          >
-            🗑 删除该建筑
           </button>
         </div>
       </transition>
 
-
-      <!-- ===== 楼层选择 ===== -->
+      <!-- 楼层选择 -->
       <transition name="fade">
         <div
           v-if="viewMode === 'floor'"
@@ -104,24 +40,55 @@
         </div>
       </transition>
 
-      <!-- ===== 图例 ===== -->
+      <!-- 时间筛选面板 -->
       <div
-        class="legend"
         v-if="viewMode === 'floor'"
+        class="time-filter-panel"
         @mousedown.stop
         @mouseup.stop
         @click.stop
       >
-        <div class="item">
-          <span class="dot free"></span>正常启用
+        <h3>时间筛选</h3>
+        <p class="current-time">当前时间：{{ nowTimeLabel }}</p>
+
+        <div class="filter-row">
+          <label>日期</label>
+          <select v-model="timeFilter.date">
+            <option v-for="d in dateOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
+          </select>
         </div>
-        <div class="item">
-          <span class="dot disabled"></span>维修中
+
+        <div class="filter-row">
+          <label>开始</label>
+          <select v-model="timeFilter.start">
+            <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+          </select>
         </div>
+
+        <div class="filter-row">
+          <label>结束</label>
+          <select v-model="timeFilter.end">
+            <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+
+        <div class="hint">
+          <span class="tag tag-partial">半空闲</span>
+          <span class="tag tag-occupied">占用</span>
+          由预约时间与筛选区间重叠计算
+        </div>
+      </div>
+
+      <!-- 图例 -->
+      <div class="legend" v-if="viewMode === 'floor'">
+        <div class="item"><span class="dot free"></span>空闲</div>
+        <div class="item"><span class="dot partial"></span>半空闲</div>
+        <div class="item"><span class="dot occupied"></span>占用</div>
+        <div class="item"><span class="dot disabled"></span>维修中</div>
       </div>
     </div>
 
-    <!-- ================== Tooltip ================== -->
+    <!-- Tooltip -->
     <div
       class="tooltip"
       ref="tooltipRef"
@@ -131,104 +98,123 @@
       {{ hoverInfo }}
     </div>
 
-    <!-- ================== 座位管理弹窗 ================== -->
+    <!-- ================== 用户预约弹窗 ================== -->
     <div
-      v-if="showSeatAdminModal"
+      v-if="showReservationModal"
       class="reservation-overlay"
-      @click.self="closeSeatAdmin"
+      @click.self="showReservationModal = false"
       @mousedown.stop
       @mouseup.stop
     >
-      <div
-        class="reservation-dialog"
-        @click.stop
-        @mousedown.stop
-        @mouseup.stop
-      >
-        <h2>座位管理</h2>
+      <div class="reservation-dialog" @click.stop @mousedown.stop @mouseup.stop>
+        <!-- Header -->
+        <div class="dialog-header">
+          <div class="title-wrap">
+            <h2 class="dialog-title">预约座位</h2>
+            <div class="seat-meta">
+              <span class="seat-pill">座位 {{ selectedSeatUI.id }}</span>
+              <span class="status-pill" :class="selectedSeatUI.status">
+                {{ selectedSeatUI.status === 'partial' ? '半空闲' : '空闲' }}
+              </span>
+            </div>
+          </div>
 
-        <p class="seat-label">
-          当前座位：
-          <strong>{{ adminSeat?.userData.id }}</strong>
-        </p>
-
-        <div class="form-row">
-          <label>座位状态</label>
-          <select
-            v-model="adminSeat.userData.enabled"
-            @change="toggleSeatEnable"
-          >
-            <option :value="true">启用</option>
-            <option :value="false">禁用</option>
-          </select>
+          <button class="icon-close" @click="showReservationModal = false" aria-label="关闭">
+            ✕
+          </button>
         </div>
 
+        <!-- Body -->
+        <div class="dialog-body">
+          <div class="form-grid">
+            <div class="field">
+              <label>日期</label>
+              <select v-model="reservationForm.date">
+                <option v-for="d in dateOptions" :key="d.value" :value="d.value">
+                  {{ d.label }}
+                </option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>开始</label>
+              <select v-model="reservationForm.start">
+                <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>结束</label>
+              <select v-model="reservationForm.end">
+                <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+              </select>
+            </div>
+
+            <div class="quick">
+              <label>快捷时长</label>
+              <div class="quick-row">
+                <button class="chip" type="button" @click="quickPick(60)">+1h</button>
+                <button class="chip" type="button" @click="quickPick(90)">+1.5h</button>
+                <button class="chip" type="button" @click="quickPick(120)">+2h</button>
+                <button class="chip" type="button" @click="quickPick(180)">+3h</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="timebar-card">
+            <div class="timebar-head">
+              <div class="sub-title">时间条</div>
+              <div class="sub-hint">拖拽选择区间（红色不可选）</div>
+            </div>
+
+            <div class="time-ticks">
+              <span class="tick" v-for="t in timeTicks" :key="t">{{ t }}</span>
+            </div>
+
+            <div
+              class="time-bar"
+              @mousedown.stop.prevent="onBarMouseDown"
+              @mousemove.stop.prevent="onBarMouseMove"
+              @mouseup.stop.prevent="onBarMouseUp"
+              @mouseleave.stop.prevent="onBarMouseUp"
+            >
+              <div class="time-bar-slots">
+                <div
+                  v-for="slot in barSlots"
+                  :key="slot.key"
+                  class="time-slot"
+                  :class="slot.cls"
+                  :style="{ left: slot.left, width: slot.width }"
+                  @mousedown.stop.prevent="onSlotMouseDown(slot)"
+                  @mouseenter.stop.prevent="onSlotMouseEnter(slot)"
+                  :title="slot.label"
+                />
+                <div
+                  v-if="selectionIndicator"
+                  class="user-selection-indicator"
+                  :style="{ left: selectionIndicator.left, width: selectionIndicator.width }"
+                >
+                  <div class="selection-label">
+                    {{ reservationForm.start }} - {{ reservationForm.end }}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="timebar-legend">
+              <div class="lg"><span class="dot free"></span>可预约</div>
+              <div class="lg"><span class="dot occupied"></span>已占用</div>
+              <div class="lg"><span class="dot selected"></span>已选择</div>
+            </div>
+          </div>
+
+          <p class="tip">建议预约至少 30 分钟。若无法选择，说明与已占用时间冲突。</p>
+        </div>
+
+        <!-- Footer -->
         <div class="dialog-actions">
-          <button class="btn-cancel" @click="closeSeatAdmin">
-            关闭
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ================== 建筑配置确认弹窗 ================== -->
-    <div
-      v-if="showBuildingConfigModal"
-      class="reservation-overlay"
-      @click.self="showBuildingConfigModal = false"
-      @mousedown.stop
-      @mouseup.stop
-    >
-      <div
-        class="reservation-dialog"
-        @click.stop
-        @mousedown.stop
-        @mouseup.stop
-      >
-        <h2>确认建筑配置</h2>
-
-        <div class="form-row">
-          <label>建筑名称</label>
-          <input
-            type="text"
-            v-model.trim="addForm.name"
-            placeholder="请输入建筑名称"
-          />
-        </div>
-
-
-        <div class="form-row">
-          <label>楼层数</label>
-          <input type="number" v-model.number="addForm.floors" min="1" />
-        </div>
-
-        <div class="form-row">
-          <label>每层自习室数量</label>
-          <input type="number" v-model.number="addForm.roomsPerFloor" min="1" />
-        </div>
-
-        <div class="form-row">
-          <label>每个自习室座位数</label>
-          <input type="number" v-model.number="addForm.seatsPerRoom" min="1" />
-        </div>
-
-        <p class="hint">
-          确认后将生成建筑结构和所有座位
-        </p>
-
-        <div class="dialog-actions">
-          <button
-            class="btn-cancel"
-            @click="showBuildingConfigModal = false"
-          >
-            返回修改
-          </button>
-          <button
-            class="btn-confirm"
-            @click="confirmCreateBuildingFinal"
-          >
-            确认创建
-          </button>
+          <button class="btn ghost" @click="showReservationModal = false">取消</button>
+          <button class="btn primary" @click="confirmReservation">确认预约</button>
         </div>
       </div>
     </div>
@@ -236,8 +222,11 @@
 </template>
 
 
+
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, reactive, computed, watch } from 'vue';
+import { ref, shallowRef, markRaw, onMounted, onBeforeUnmount, reactive, watch, computed } from 'vue';
+
+
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -251,14 +240,34 @@ import axios from 'axios';
 // --- 状态管理 ---
 
 const totalFloors = ref(0); // ✅ 新增：左侧楼层按钮数量
+const isUserMode = true; // ✅ 用户页面：true
+// 如果你想复用同一个组件做管理员/用户切换，也可以改成从路由或store来取
 
-const showBuildingConfigModal = ref(false);
-// 新增建筑表单
-const addForm = reactive({
-  name: '',
-  floors: 3,
-  roomsPerFloor: 2,
-  seatsPerRoom: 20
+const selectedSeat = shallowRef<THREE.Object3D | null>(null);
+const selectedSeatUI = reactive<{
+  id: string;
+  status: string;
+  backendSeatId: number | string | null;
+  enabled: boolean;
+  resvSummary: Array<{ start: string; end: string }>;
+}>({
+  id: '',
+  status: '',
+  backendSeatId: null,
+  enabled: true,
+  resvSummary: []
+});
+
+
+// 用户在弹窗里选择的预约时间（先用 timeFilter 默认值）
+const userReserve = reactive({
+  start: '',
+  end: ''
+});
+const reservationForm = reactive({
+  date: '',
+  start: '',
+  end: ''
 });
 
 const canvasRef = ref(null);
@@ -275,23 +284,194 @@ const freezeTooltip = ref(true);
 
 const loading = ref(true);
 
-type AdminMode = 'normal' | 'placingBuilding';
-
-const adminMode = ref<AdminMode>('normal');
-let ghostBuilding: BuildingInstance | null = null;
-const ghostPosX = ref(0);
-const ghostPosZ = ref(0);
-
 const timeTicks = ref(['08:00', '12:00', '16:00', '20:00', '22:00']); // 时间刻度
 // ======================
 // 幽灵墙 Padding（只影响可视，不影响后端）
 // ======================
 const SHELL_PADDING_X = 2.5;   // 左右
 const SHELL_PADDING_Z = 4.0;   // 前后（一定要大于 X）
+// ======================
+// 时间条（旧版 UI）核心
+// ======================
 
-// 座位管理弹窗
-const showSeatAdminModal = ref(false);
-const adminSeat = ref(null);
+const parseTimeStr = (str) => {
+  if (!str || typeof str !== 'string' || !str.includes(':')) return null;
+  const [h, m] = str.split(':').map((v) => parseInt(v, 10));
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+};
+const BAR_START_MIN = 8 * 60;
+const BAR_END_MIN = 22 * 60;
+const SLOT_STEP = 30;
+
+const dragging = ref(false);
+const dragAnchorMin = ref<number | null>(null);
+const dragCurrentMin = ref<number | null>(null);
+
+/** 计算某分钟在条上的 left% */
+const toPercent = (min: number) => {
+  const t = (min - BAR_START_MIN) / (BAR_END_MIN - BAR_START_MIN);
+  const pct = Math.max(0, Math.min(1, t)) * 100;
+  return `${pct}%`;
+};
+
+
+const occupiedRanges = computed(() => {
+  const list = selectedSeatUI.resvSummary;
+  if (!Array.isArray(list) || list.length === 0) return [] as Array<{ s: number; e: number }>;
+
+  const ranges = list
+    .map(r => {
+      const s = parseTimeStr(r.start);
+      const e = parseTimeStr(r.end);
+      if (s == null || e == null) return null;
+      return { s: Math.max(BAR_START_MIN, s), e: Math.min(BAR_END_MIN, e) };
+    })
+    .filter(Boolean) as Array<{ s: number; e: number }>;
+
+  ranges.sort((a, b) => a.s - b.s);
+
+  const merged: Array<{ s: number; e: number }> = [];
+  for (const r of ranges) {
+    const last = merged[merged.length - 1];
+    if (!last || r.s > last.e) merged.push({ ...r });
+    else last.e = Math.max(last.e, r.e);
+  }
+  return merged;
+});
+
+const onSlotMouseEnter = (slot: { min: number; cls: string }) => {
+  if (!dragging.value) return;
+  if (dragAnchorMin.value == null) return;
+  if (slot.cls === 'occupied') return;
+
+  // ✅ 关键：如果还是同一个格子，就别重复 commit
+  if (dragCurrentMin.value === slot.min) return;
+
+  dragCurrentMin.value = slot.min;
+  commitRangeToForm(dragAnchorMin.value, slot.min);
+};
+
+/** 当前选区（分钟） */
+const getSelectedRange = () => {
+  const s = parseTimeStr(reservationForm.start);
+  const e = parseTimeStr(reservationForm.end);
+  if (s == null || e == null || e <= s) return null;
+  return {
+    s: Math.max(BAR_START_MIN, s),
+    e: Math.min(BAR_END_MIN, e)
+  };
+};
+
+/** UI slots：每半小时一个块 */
+const barSlots = computed(() => {
+  const slots: Array<{
+    key: string;
+    min: number;
+    label: string;
+    left: string;
+    width: string;
+    cls: string;
+  }> = [];
+
+  const selected = getSelectedRange();
+
+  for (let m = BAR_START_MIN; m < BAR_END_MIN; m += SLOT_STEP) {
+    const left = toPercent(m);
+    const width = `${(SLOT_STEP / (BAR_END_MIN - BAR_START_MIN)) * 100}%`;
+
+    const occupied = isSlotOccupied(m);
+    const inSelected =
+      !!selected && m >= selected.s && m < selected.e;
+
+    let cls = 'free';
+    if (occupied) cls = 'occupied';
+    if (inSelected) cls = 'selected';
+
+    const hh = String(Math.floor(m / 60)).padStart(2, '0');
+    const mm = String(m % 60).padStart(2, '0');
+
+    slots.push({
+      key: `${m}`,
+      min: m,
+      label: `${hh}:${mm}`,
+      left,
+      width,
+      cls
+    });
+  }
+  return slots;
+});
+
+/** 选区虚线框（覆盖显示） */
+const selectionIndicator = computed(() => {
+  const r = getSelectedRange();
+  if (!r) return null;
+
+  const left = toPercent(r.s);
+  const width = `${((r.e - r.s) / (BAR_END_MIN - BAR_START_MIN)) * 100}%`;
+  return { left, width };
+});
+
+/** 把分钟数格式化回 HH:MM */
+const formatMin = (min: number) => {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
+
+/** 校验一个区间内是否碰到 occupied（只要有交集就不允许） */
+const rangeHitsOccupied = (s: number, e: number) => {
+  for (let m = s; m < e; m += SLOT_STEP) {
+    if (isSlotOccupied(m)) return true;
+  }
+  return false;
+};
+
+const commitRangeToForm = (a: number, b: number) => {
+  const s = Math.max(BAR_START_MIN, Math.min(a, b));
+  const e = Math.min(BAR_END_MIN, Math.max(a, b) + SLOT_STEP); // 注意：包含当前格子 => end + 30min
+
+  if (e <= s) return;
+
+  // 不允许选到 occupied
+  if (rangeHitsOccupied(s, e)) return;
+
+  reservationForm.start = formatMin(s);
+  reservationForm.end = formatMin(e);
+
+  // ticks 跟着选区变
+  updateTimeTicks(s, e);
+};
+
+// ===== 鼠标交互 =====
+
+const onSlotMouseDown = (slot: { min: number; cls: string }) => {
+  // occupied 不让点
+  if (slot.cls === 'occupied') return;
+
+  dragging.value = true;
+  dragAnchorMin.value = slot.min;
+  dragCurrentMin.value = slot.min;
+
+  // 单击默认选一个 slot
+  commitRangeToForm(slot.min, slot.min);
+};
+const isSlotOccupied = (slotStartMin: number) => {
+  // 一个 slot 的区间：[slotStartMin, slotStartMin + 30)
+  const slotEnd = slotStartMin + SLOT_STEP;
+
+  for (const r of occupiedRanges.value) {
+    // 有交集即算占用
+    if (slotStartMin < r.e && slotEnd > r.s) return true;
+  }
+  return false;
+};
+
+
+const showReservationModal = ref(false);
+const isModalOpen = computed(() => showReservationModal.value);
+
 type FloorLayoutResp = ResponseMessage<RoomDTO[]> | RoomDTO[];
 
 type BackendBuilding = {
@@ -329,19 +509,6 @@ type ResponseMessage<T> = {
   data: T;
 };
 
-
-const enterAddBuildingMode = () => {
-  // 只有在 campus 才允许放置
-  if (viewMode.value !== 'campus') return;
-
-  adminMode.value = 'placingBuilding';
-
-  // 给一个默认名字也行（可选）
-  if (!addForm.name) addForm.name = 'New Building';
-
-  startGhostBuilding();
-};
-
 // 把后端 Building 转成 createBuildingInstance 需要的 config
 const mapBackendBuildingToConfig = (b: BackendBuilding) => {
   return {
@@ -356,17 +523,8 @@ const mapBackendBuildingToConfig = (b: BackendBuilding) => {
   };
 };
 
-const isModalOpen = computed(() => {
-  return showSeatAdminModal.value || showBuildingConfigModal.value;
 
-});
 
-watch(isModalOpen, (open) => {
-  // ⚠️ controls 可能还没初始化，所以一定要判空
-  if (controls) {
-    controls.enabled = !open;
-  }
-});
 // 新增：更新时间刻度（根据动态时间范围）
 const updateTimeTicks = (startMin, endMin) => {
   const duration = endMin - startMin;
@@ -454,134 +612,144 @@ const FLOOR_LEVEL_HEIGHT = 4.0;
 const DEFAULT_WIDTH = 40;
 const DEFAULT_DEPTH = 40;
 // 工具：解析 "HH:MM" 为分钟数
-const parseTimeStr = (str) => {
-  if (!str || typeof str !== 'string' || !str.includes(':')) return null;
-  const [h, m] = str.split(':').map((v) => parseInt(v, 10));
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  return h * 60 + m;
+
+const quickPick = (mins: number) => {
+  const s = parseTimeStr(reservationForm.start);
+  if (s == null) return;
+
+  const e = Math.min(BAR_END_MIN, s + mins);
+  if (rangeHitsOccupied(s, e)) return; // 有冲突就不改
+
+  reservationForm.end = formatMin(e);
+  updateTimeTicks(s, e);
 };
 
 
-
-const startGhostBuilding = () => {
-  // 防止重复
-  if (ghostBuilding) {
-    scene.remove(ghostBuilding.rootGroup);
-    ghostBuilding = null;
+const confirmReservation = async () => {
+  if (!selectedSeat.value) {
+    showReservationModal.value = false;
+    return;
   }
 
-  ghostBuilding = createBuildingInstance({
-    id: -1,
-    name: '新建筑（预览）',
-    position: { x: 0, z: 0 }
-  });
-
-// ⭐ 标记幽灵
-  ghostBuilding.rootGroup.userData.isGhost = true;
-
-// ⭐ 关键：放到 layer 1
-  ghostBuilding.rootGroup.traverse(obj => {
-    obj.layers.set(1);
-  });
-
-  applyGhostStyle(ghostBuilding);
-  ghostPosX.value = ghostBuilding.rootGroup.position.x;
-  ghostPosZ.value = ghostBuilding.rootGroup.position.z;
-
-
-};
-
-
-const applyGhostStyle = (building: BuildingInstance) => {
-  building.rootGroup.traverse((obj) => {
-    if (!obj.isMesh) return;
-
-    obj.material = obj.material.clone();
-    obj.material.transparent = true;
-    obj.material.opacity = 0.25;
-
-    // 幽灵蓝
-    if (obj.material.color) {
-      obj.material.color.multiplyScalar(0.8);
-    }
-
-    // 不投射阴影
-    obj.castShadow = false;
-    obj.receiveShadow = false;
-  });
-
-  // 幽灵建筑不能被点击
-  if (building.hitBox) {
-    building.hitBox.visible = false;
-  }
-};
-
-
-const cancelGhostBuilding = () => {
-  if (ghostBuilding) {
-    scene.remove(ghostBuilding.rootGroup);
-    ghostBuilding = null;
+  if (!reservationForm.date || !reservationForm.start || !reservationForm.end) {
+    alert('请先选择完整的预约时间段');
+    return;
   }
 
+  const startM = parseTimeStr(reservationForm.start);
+  const endM = parseTimeStr(reservationForm.end);
+  const lastM = 22 * 60;
 
-  addForm.name = '';
-
-  adminMode.value = 'normal';
-};
-
-
-
-const confirmGhostBuilding = () => {
-  if (!ghostBuilding) return;
-  // ⭐ 不创建，只弹窗
-  showBuildingConfigModal.value = true;
-
-};
-
-
-const confirmCreateBuildingFinal = async () => {
-  if (!ghostBuilding) return;
-
-  // 🔒 校验建筑名
-  if (!addForm.name || addForm.name.trim().length === 0) {
-    alert('请输入建筑名称');
+  if (endM == null || endM > lastM) {
+    alert('结束时间不能晚于 22:00');
+    return;
+  }
+  if (startM != null && endM <= startM) {
+    alert('结束时间必须晚于开始时间');
     return;
   }
 
   try {
-    await api.post('/building/add', {
-      buildingName: addForm.name.trim(),
-      buildingPosX: ghostBuilding.rootGroup.position.x,
-      buildingPosZ: ghostBuilding.rootGroup.position.z,
-      buildingFloors: addForm.floors,
-      buildingRoomsPerFloor: addForm.roomsPerFloor,
-      buildingSeatsPerRoom: addForm.seatsPerRoom
-    });
+    // 从 sessionStorage 获取用户ID（根据你登录时的存储方式）
+    const getCurrentUserId = () => {
+      // 首先尝试直接获取 userId
+      const userId = sessionStorage.getItem('userId');
+      if (userId) {
+        return parseInt(userId);
+      }
 
-    // 移除幽灵
-    scene.remove(ghostBuilding.rootGroup);
-    ghostBuilding = null;
+      // 如果 userId 不存在，尝试从 userInfo 中获取
+      const userInfo = sessionStorage.getItem('userInfo');
+      if (userInfo) {
+        try {
+          const user = JSON.parse(userInfo);
+          if (user.userId) {
+            return user.userId;
+          } else {
+            throw new Error('用户信息中没有找到 userId 字段');
+          }
+        } catch (e) {
+          throw new Error('解析用户信息失败: ' + e.message);
+        }
+      }
 
-    // 重拉建筑
-    await loadBuildingsFromBackend();
+      // 检查是否登录
+      const isLoggedIn = sessionStorage.getItem('isLoggedIn');
+      if (isLoggedIn !== 'true') {
+        throw new Error('用户未登录，请先登录');
+      }
 
-    adminMode.value = 'normal';
-    showBuildingConfigModal.value = false;
+      // 如果到这里还没有返回或抛出错误，说明找不到用户ID
+      throw new Error('无法获取用户ID，请重新登录');
+    };
 
-    // 🧹 重置表单
-    addForm.name = '';
-    addForm.floors = 3;
-    addForm.roomsPerFloor = 2;
-    addForm.seatsPerRoom = 20;
+    const userId = getCurrentUserId();
+    console.log('当前用户ID:', userId);
 
-  } catch (e) {
-    console.error('create building failed:', e);
-    alert('创建建筑失败，请查看后端日志');
+    // 构建符合后端 API 要求的 JSON 数据
+    const reservationData = {
+      seatId: selectedSeatUI.backendSeatId,
+      userId: userId,
+      resvDate: reservationForm.date,
+      resvstartTime: reservationForm.start,
+      resvendTime: reservationForm.end
+    };
+
+
+    console.log('发送预约数据:', reservationData);
+
+    // 发送 POST 请求到后端
+    const response = await api.post('/reservation', reservationData);
+
+    console.log('预约响应:', response.data);
+
+    if (response.data.code === 200 || response.data.success) {
+      // 预约成功
+      const seat = selectedSeat.value;
+
+      // 更新前端状态
+      if (!seat.userData.resvSummary) {
+        seat.userData.resvSummary = [];
+      }
+
+      seat.userData.resvSummary.push({
+        start: reservationForm.start,
+        end: reservationForm.end
+      });
+
+      seat.userData.status = computeSeatStatusByFilter(seat);
+      applySeatMaterialByStatus(seat);
+
+      alert(`预约成功！\n座位: ${seat.userData.id}\n时间: ${reservationForm.date} ${reservationForm.start} - ${reservationForm.end}`);
+
+      // 重置状态
+      selectedSeat.value = null;
+      showReservationModal.value = false;
+      selectedOutlineObjects = [];
+      outlinePass.selectedObjects = selectedOutlineObjects;
+
+      // 刷新当前楼层数据
+      if (viewMode.value === 'floor') {
+        await fetchFloorLayout(currentFloor.value);
+      }
+    } else {
+      const errorMsg = response.data.msg || response.data.message || '预约失败，请重试';
+      alert(`预约失败: ${errorMsg}`);
+    }
+
+  } catch (error) {
+    console.error('预约请求失败:', error);
+
+    if (error.response) {
+      const errorMsg = error.response.data.msg || error.response.data.message || '服务器错误';
+      alert(`预约失败 (${error.response.status}): ${errorMsg}`);
+    } else if (error.request) {
+      alert('网络错误，请检查网络连接');
+    } else {
+      alert('预约失败: ' + error.message);
+    }
   }
 };
-
-
-
 const getActiveBuildingCenter = () => {
   const c = new THREE.Vector3();
   if (!activeBuilding) return c;
@@ -622,6 +790,17 @@ const materials = {
     roughness: 0.55,
     metalness: 0.08
   }),
+  seatOccupied: new THREE.MeshStandardMaterial({
+    color: 0xf28b82,
+    roughness: 0.55,
+    metalness: 0.08
+  }),
+  seatPartial: new THREE.MeshStandardMaterial({
+    color: 0xffe9a7,
+    roughness: 0.55,
+    metalness: 0.08
+  }),
+
 
   seatDisabled: new THREE.MeshStandardMaterial({
     color: 0x9ca3af,
@@ -697,7 +876,7 @@ const initScene = () => {
     1000
   );
   camera.layers.enable(0);   // 正常建筑
-  camera.layers.enable(1); // 幽灵建筑
+
   camera.position.set(55, 45, 55);
   camera.lookAt(0, 5, 0);
 
@@ -744,9 +923,7 @@ const initScene = () => {
   scene.add(dirLight);
 
   raycaster = new THREE.Raycaster();
-  // ⭐ 关键：raycaster 只检测 layer 0
-  raycaster.layers.enable(0);
-  raycaster.layers.disable(1);
+
 
   mouse = new THREE.Vector2();
 
@@ -804,6 +981,43 @@ const initScene = () => {
     );
   }, 800);
 };
+const handleSeatClick = (seat: THREE.Object3D) => {
+  const status = seat.userData?.status;
+
+  if (status === 'disabled') {
+    alert('该座位维修中，暂不可预约');
+    return;
+  }
+  if (status === 'occupied') {
+    alert('该时间段已被占用，换个时间试试');
+    return;
+  }
+
+  // ✅ 关键：不让 Vue 深度代理 Three 对象
+  selectedSeat.value = markRaw(seat);
+
+  // ✅ 关键：模板/时间条只用纯数据
+  selectedSeatUI.id = String(seat.userData?.id ?? '');
+  selectedSeatUI.status = String(seat.userData?.status ?? '');
+  selectedSeatUI.backendSeatId = seat.userData?.backendSeatId ?? null;
+  selectedSeatUI.enabled = seat.userData?.enabled !== false;
+  selectedSeatUI.resvSummary = Array.isArray(seat.userData?.resvSummary)
+    ? seat.userData.resvSummary.map(r => ({ start: r.start, end: r.end })) // 拷贝一份，别引用 Three 内部对象
+    : [];
+
+  reservationForm.date = timeFilter.date;
+  reservationForm.start = timeFilter.start;
+  reservationForm.end = timeFilter.end;
+
+  const s = parseTimeStr(reservationForm.start);
+  const e = parseTimeStr(reservationForm.end);
+  if (s != null && e != null && e > s) updateTimeTicks(s, e);
+
+  showReservationModal.value = true;
+};
+
+
+
 
 
 const createWindowsForBuilding = (building: BuildingInstance) => {
@@ -873,75 +1087,6 @@ const createWindowsForBuilding = (building: BuildingInstance) => {
     if (isGhostBuilding) {
       winGroup.traverse(obj => obj.layers.set(1));
     }
-  });
-};
-
-
-
-const handleGhostKeyMove = (e: KeyboardEvent) => {
-  // 🚫 输入框里不响应
-  const tag = (e.target as HTMLElement)?.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-
-  if (adminMode.value !== 'placingBuilding' || !ghostBuilding) return;
-
-  const step = e.shiftKey ? 5 : 1;
-
-  switch (e.key) {
-    case 'ArrowUp':
-      ghostBuilding.rootGroup.position.z -= step;
-      break;
-    case 'ArrowDown':
-      ghostBuilding.rootGroup.position.z += step;
-      break;
-    case 'ArrowLeft':
-      ghostBuilding.rootGroup.position.x -= step;
-      break;
-    case 'ArrowRight':
-      ghostBuilding.rootGroup.position.x += step;
-      break;
-  }
-
-  // 更新窗户位置
-  updateWindowsPosition(ghostBuilding);
-
-  ghostPosX.value = ghostBuilding.rootGroup.position.x;
-  ghostPosZ.value = ghostBuilding.rootGroup.position.z;
-};
-
-// 更新窗户的位置
-const updateWindowsPosition = (b: BuildingInstance) => {
-  b.floorStructureMeshes.forEach((floorMesh, i) => {
-    const floorSizeX = b.width * 0.9 - i * 0.5;
-    const floorSizeZ = b.depth * 0.9 - i * 0.5;
-
-    const windowThickness = 0.12;
-    const windowRatio = 0.7;
-    const eps = 0.02;
-
-    // 找到这一层的 windowGroup
-    const winGroup = floorMesh.children.find(
-      c => c.userData?.type === 'windowGroup'
-    ) as THREE.Group | undefined;
-    if (!winGroup) return;
-
-    winGroup.traverse((obj: any) => {
-      if (!obj.isMesh || obj.userData?.type !== 'window') return;
-
-      const side = obj.userData.side;
-      if (side === 'front') {
-        obj.position.set(0, 0, floorSizeZ / 2 + windowThickness / 2 + eps);
-        // 重新设置几何，防止尺寸不匹配
-        obj.geometry.dispose();
-        obj.geometry = new THREE.BoxGeometry(floorSizeX * windowRatio, obj.geometry.parameters.height ?? FLOOR_LEVEL_HEIGHT * 0.6, windowThickness);
-      } else if (side === 'back') {
-        obj.position.set(0, 0, -(floorSizeZ / 2 + windowThickness / 2 + eps));
-      } else if (side === 'right') {
-        obj.position.set(floorSizeX / 2 + windowThickness / 2 + eps, 0, 0);
-      } else if (side === 'left') {
-        obj.position.set(-(floorSizeX / 2 + windowThickness / 2 + eps), 0, 0);
-      }
-    });
   });
 };
 
@@ -1157,38 +1302,6 @@ const createEnvironment = () => {
 
 };
 
-const toggleSeatEnable = async () => {
-  const seat = adminSeat.value;
-  if (!seat) return;
-
-  // 切换状态
-  seat.userData.enabled = !seat.userData.enabled;
-
-  // 发送禁用/启用请求到后端
-  try {
-    await api.put('/seat/update', {
-      seatId: seat.userData.backendSeatId,  // 后端座位 ID
-      seatEnabled: seat.userData.enabled         // 更新的状态
-    });
-
-    // 更新材质
-    applySeatMaterialByEnabled(seat);
-  } catch (error) {
-    console.error('Failed to update seat status:', error);
-    // 处理错误，例如弹出提示用户更新失败
-  }
-};
-
-
-
-const closeSeatAdmin = () => {
-  adminSeat.value = null;
-  showSeatAdminModal.value = false;
-
-  selectedOutlineObjects = [];
-  outlinePass.selectedObjects = [];
-};
-
 
 const loadBuildingsFromBackend = async () => {
   // 你后端是 /all（按你 Controller 的写法，实际前缀看你类上的 @RequestMapping）
@@ -1229,7 +1342,10 @@ const createEmptyFloorGroups = (building: BuildingInstance) => {
 
 // --- 根据当前时间筛选计算座位状态（使用后端的 resvSummary） ---
 const computeSeatStatusByFilter = (seat) => {
-  const list = seat.userData.resvSummary;
+  // 维修中：永远灰
+  if (seat?.userData?.enabled === false) return 'disabled';
+
+  const list = seat?.userData?.resvSummary;
   if (!list || list.length === 0) return 'free';
 
   const filterStart = parseTimeStr(timeFilter.start);
@@ -1247,7 +1363,7 @@ const computeSeatStatusByFilter = (seat) => {
     // 完全不重叠
     if (resEnd <= filterStart || resStart >= filterEnd) continue;
 
-    // 完全覆盖
+    // 完全覆盖筛选时间段
     if (resStart <= filterStart && resEnd >= filterEnd) {
       occupied = true;
       break;
@@ -1262,44 +1378,31 @@ const computeSeatStatusByFilter = (seat) => {
   return 'free';
 };
 
+const applySeatMaterialByStatus = (seat) => {
+  const status = seat?.userData?.status;
 
-// 根据状态切换座位材质
-const applySeatMaterialByEnabled = (seat) => {
-  const mat =
-    seat.userData.enabled === false
-      ? materials.seatDisabled  // 如果禁用，设置禁用样式
-      : materials.seatFree;     // 如果启用，设置正常样式
+  let mat: THREE.MeshStandardMaterial;
+
+  if (status === 'disabled') mat = materials.seatDisabled;
+  else if (status === 'occupied') mat = materials.seatOccupied;
+  else if (status === 'partial') mat = materials.seatPartial;
+  else mat = materials.seatFree; // free / undefined
 
   seat.traverse((child) => {
     if (!child.isMesh) return;
+
+    // 桌子不染色
     if (child.parent?.userData?.subtype === 'table') return;
+
     child.material = mat.clone();
   });
 };
 
 
 
-
-const updateSeatStatus = async (seatId, enabled) => {
-  try {
-    const response = await api.post('/seat/update', {
-      seatId,
-      enabled
-    });
-
-    // 根据后端返回结果进行处理（成功、失败）
-    if (response.data.code === 200) {
-      console.log('Seat status updated successfully');
-    } else {
-      console.error('Failed to update seat status');
-    }
-  } catch (error) {
-    console.error('Error updating seat status:', error);
-  }
-};
-
 // 对当前楼层所有座位应用筛选规则
 const applyTimeFilterToCurrentFloorSeats = () => {
+  if (showReservationModal.value) return; // ✅ 避免弹窗期间重建座位
   const group = activeBuilding?.floorInteriorGroups[currentFloor.value - 1];
   if (!group) return;
 
@@ -1308,7 +1411,7 @@ const applyTimeFilterToCurrentFloorSeats = () => {
       if (obj.userData.status !== 'selected') {
         obj.userData.status = computeSeatStatusByFilter(obj);
       }
-      applySeatMaterialByEnabled(obj);
+      applySeatMaterialByStatus(obj);
     }
   });
 };
@@ -1419,7 +1522,9 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
     unitGroup.add(table);
 
 
-    applySeatMaterialByEnabled(unitGroup);
+    unitGroup.userData.status = computeSeatStatusByFilter(unitGroup);
+    applySeatMaterialByStatus(unitGroup);
+
 
     roomGroup.add(unitGroup);
   });
@@ -1504,8 +1609,13 @@ const fetchFloorLayout = async (floorNum: number) => {
   try {
     // ✅ 你把路径改成你后端真实路径
     const res = await api.get<FloorLayoutResp>(
-      `/building/${activeBuilding.id}/floor/${floorNum}/admin`
-    );
+      `/building/${activeBuilding.id}/floor/${floorNum}/user`, {
+        params: {
+          date: timeFilter.date,
+          start: timeFilter.start,
+          end: timeFilter.end
+        }
+      });
 
     // 兼容：后端可能直接返回数组，也可能包了一层 ResponseMessage
     const rooms: RoomDTO[] = Array.isArray(res.data)
@@ -1571,7 +1681,8 @@ const setHighlightMaterial = (object, material) => {
 
 const restoreOriginalMaterial = (object) => {
   if (object.userData && object.userData.type === 'seat') {
-    applySeatMaterialByEnabled(object);
+    applySeatMaterialByStatus(object);
+
     object.traverse((child) => {
       if (
         child.isMesh &&
@@ -2114,12 +2225,7 @@ const flyCameraToCampus = () => {
 
 
 // --- 座位点击：暂时仍使用你原来的本地预约逻辑 ---
-const handleSeatClick = (seat) => {
 
-
-  adminSeat.value = seat;
-  showSeatAdminModal.value = true;
-};
 
 
 const enterBuildingView = (building: BuildingInstance) => {
@@ -2226,38 +2332,10 @@ const initDefaultTimeFilter = () => {
   timeFilter.end = slots[endIdx];
 };
 
-const confirmDeleteBuilding = async () => {
-  if (!activeBuilding) return;
-
-  const ok = window.confirm(
-    `确认删除建筑「${activeBuilding.name}」？\n\n⚠️ 该操作将删除该建筑下所有楼层、房间和座位，且不可恢复。`
-  );
-  if (!ok) return;
-
-  try {
-    await api.delete(`/building/${activeBuilding.id}`);
-
-    // 从 Three.js 场景移除
-    scene.remove(activeBuilding.rootGroup);
-
-    // 从本地数组移除
-    const idx = buildings.findIndex(b => b.id === activeBuilding!.id);
-    if (idx !== -1) buildings.splice(idx, 1);
-
-    activeBuilding = null;
-
-    // 回到 campus 视图
-    resetView();
-
-  } catch (e) {
-    console.error('delete building failed:', e);
-    alert('删除失败，请查看后端日志');
-  }
-};
-
 
 // 时间筛选变化时：重新从后端拉取当前楼层布局
 const applyTimeFilter = async () => {
+  if (showReservationModal.value) return; // ✅ 双保险
   const startM = parseTimeStr(timeFilter.start);
   let endM = parseTimeStr(timeFilter.end);
   const lastM = 22 * 60;
@@ -2276,6 +2354,15 @@ const applyTimeFilter = async () => {
     await fetchFloorLayout(currentFloor.value);
   }
 };
+watch(
+  () => [timeFilter.date, timeFilter.start, timeFilter.end],
+  async () => {
+    if (showReservationModal.value) return; // ✅ 弹窗期间不刷新楼层
+    await applyTimeFilter();
+  }
+);
+
+
 
 onMounted(async ()  => {
   // ======================
@@ -2308,7 +2395,7 @@ onMounted(async ()  => {
   window.addEventListener('resize', handleResize);
   window.addEventListener('click', onMouseClick);
   window.addEventListener('mousemove', onMouseMove);
-  window.addEventListener('keydown', handleGhostKeyMove);
+
 });
 
 
@@ -2316,7 +2403,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize);
   window.removeEventListener('click', onMouseClick);
   window.removeEventListener('mousemove', onMouseMove);
-  window.removeEventListener('keydown', handleGhostKeyMove);
+
   if (animationId) cancelAnimationFrame(animationId);
   controls?.dispose();
   renderer?.dispose();
@@ -2556,6 +2643,12 @@ canvas {
         height: 14px;
         border-radius: 50%;
         margin-right: 6px;
+        &.partial {
+          background: #ffe9a7; // 半空闲：黄
+        }
+        &.occupied {
+          background: #f28b82; // 占用：红
+        }
 
         &.free {
           background: #7ec4b8;
@@ -2566,6 +2659,9 @@ canvas {
       }
     }
   }
+}
+.canvas-disabled {
+  pointer-events: none;
 }
 
 .tooltip {
@@ -2581,118 +2677,7 @@ canvas {
   white-space: nowrap;
 }
 
-.reservation-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
-}
 
-.reservation-dialog {
-  width: 320px;
-  max-width: 90vw;
-  background: #f9fbff;
-  border-radius: 16px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
-  padding: 18px 20px 16px;
-  animation: fadeInUp 0.2s ease-out;
-
-  h2 {
-    margin: 0 0 8px;
-    font-size: 1.1rem;
-    color: #1f2937;
-  }
-
-  .seat-label {
-    margin: 0 0 12px;
-    font-size: 0.9rem;
-    color: #4b5563;
-
-    strong {
-      color: #2563eb;
-    }
-  }
-
-  .form-row {
-    display: flex;
-    flex-direction: column;
-    margin-bottom: 10px;
-
-    label {
-      font-size: 0.8rem;
-      color: #6b7280;
-      margin-bottom: 4px;
-    }
-
-    input,
-    select {
-      padding: 6px 8px;
-      border-radius: 8px;
-      border: 1px solid #d1d5db;
-      font-size: 0.9rem;
-      outline: none;
-      background: #ffffff;
-
-      &:focus {
-        border-color: #60a5fa;
-        box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.35);
-      }
-    }
-  }
-
-  .time-row {
-    flex-direction: row;
-    gap: 8px;
-
-    > div {
-      flex: 1;
-    }
-  }
-
-  .dialog-actions {
-    margin-top: 6px;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-
-    button {
-      border-radius: 999px;
-      padding: 6px 12px;
-      font-size: 0.85rem;
-      border: none;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .btn-cancel {
-      background: #e5e7eb;
-      color: #374151;
-
-      &:hover {
-        background: #d1d5db;
-      }
-    }
-
-    .btn-confirm {
-      background: linear-gradient(135deg, #3b82f6, #60a5fa);
-      color: #f9fafb;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
-
-      &:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 7px 16px rgba(37, 99, 235, 0.45);
-      }
-    }
-  }
-}
-
-
-.canvas-disabled {
-  pointer-events: none; // ✅ 弹窗打开时，canvas 完全不吃鼠标
-}
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s;
@@ -2868,14 +2853,7 @@ canvas {
 }
 
 
-.back-btn.danger {
-  background: linear-gradient(135deg, #ef4444, #f87171);
-  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.4);
-}
 
-.back-btn.danger:hover {
-  box-shadow: 0 10px 24px rgba(220, 38, 38, 0.55);
-}
 
 .color-dot {
   width: 12px;
@@ -2925,83 +2903,297 @@ canvas {
   }
 }
 
-.placement-panel {
-  pointer-events: auto;
-  width: 240px;
-  padding: 14px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(14px);
-  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
-  border: 1px solid rgba(200, 220, 255, 0.9);
+/* ✅ 预约弹窗遮罩层（必须要有定位，否则会被 canvas 顶到屏幕外） */
+/* Overlay */
+.reservation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
 
-  .panel-header {
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: #1f2937;
-    margin-bottom: 10px;
-  }
-
-  .panel-body {
-    .pos-row {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 6px;
-      font-size: 0.85rem;
-
-      span {
-        color: #6b7280;
-      }
-
-      strong {
-        color: #2563eb;
-        font-weight: 600;
-      }
-    }
-
-    .hint {
-      margin-top: 8px;
-      font-size: 0.75rem;
-      color: #6b7280;
-    }
-  }
-
-  .panel-actions {
-    margin-top: 12px;
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-
-    button {
-      flex: 1;
-      border: none;
-      border-radius: 999px;
-      padding: 6px 0;
-      font-size: 0.85rem;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .btn-cancel {
-      background: #e5e7eb;
-      color: #374151;
-
-      &:hover {
-        background: #d1d5db;
-      }
-    }
-
-    .btn-confirm {
-      background: linear-gradient(135deg, #3b82f6, #60a5fa);
-      color: #f9fafb;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
-
-      &:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 7px 18px rgba(37, 99, 235, 0.45);
-      }
-    }
-  }
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(10px);
 }
+
+/* Dialog */
+.reservation-dialog {
+  width: min(920px, 96vw);
+  max-height: 90vh;
+  overflow: hidden;
+
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+.dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 18px 12px;
+
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.22), rgba(255, 255, 255, 0.6));
+}
+
+.dialog-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: 0.2px;
+}
+
+.seat-meta {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.seat-pill,
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255, 255, 255, 0.75);
+  color: #0f172a;
+}
+
+.status-pill.partial { background: rgba(255, 233, 167, 0.55); border-color: rgba(245, 158, 11, 0.35); }
+.status-pill.occupied { background: rgba(242, 139, 130, 0.25); border-color: rgba(239, 68, 68, 0.35); }
+.status-pill.free { background: rgba(126, 196, 184, 0.25); border-color: rgba(16, 185, 129, 0.35); }
+
+.icon-close {
+  border: none;
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+.icon-close:hover { transform: translateY(-1px); background: rgba(15, 23, 42, 0.12); }
+
+/* Body */
+.dialog-body {
+  padding: 14px 18px 12px;
+  overflow: auto;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr 1.6fr;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 860px) {
+  .form-grid { grid-template-columns: 1fr 1fr; }
+}
+
+.field label,
+.quick label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.field select {
+  width: 100%;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: rgba(255, 255, 255, 0.95);
+  padding: 0 10px;
+  outline: none;
+}
+.field select:focus {
+  border-color: rgba(96, 165, 250, 0.9);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+}
+
+.quick-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.chip {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: rgba(255, 255, 255, 0.9);
+  color: #0f172a;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+.chip:hover { transform: translateY(-1px); background: rgba(96, 165, 250, 0.14); }
+
+/* Timebar card */
+.timebar-card {
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  padding: 12px 12px 10px;
+}
+
+.timebar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.sub-title { font-weight: 800; color: #0f172a; }
+.sub-hint { font-size: 0.78rem; color: #64748b; }
+
+/* ticks */
+.time-ticks {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 2px 8px;
+  color: #64748b;
+  font-weight: 700;
+  font-size: 0.74rem;
+}
+.tick { user-select: none; }
+
+/* bar */
+.time-bar {
+  position: relative;
+  height: 54px;
+  border-radius: 14px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.8);
+  overflow: hidden;
+}
+
+.time-bar-slots {
+  position: absolute;
+  inset: 0;
+}
+
+.time-slot {
+  position: absolute;
+  top: 10px;
+  height: 34px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.time-slot:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(15, 23, 42, 0.12);
+}
+
+/* 状态色（更克制的现代风） */
+.time-slot.free { background: rgba(34, 197, 94, 0.25); border: 1px solid rgba(34, 197, 94, 0.35); }
+.time-slot.occupied { background: rgba(239, 68, 68, 0.25); border: 1px solid rgba(239, 68, 68, 0.35); cursor: not-allowed; }
+.time-slot.selected { background: rgba(59, 130, 246, 0.28); border: 1px solid rgba(59, 130, 246, 0.45); z-index: 2; }
+
+/* selection indicator */
+.user-selection-indicator {
+  position: absolute;
+  top: 10px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 2px dashed rgba(59, 130, 246, 0.65);
+  z-index: 1;
+}
+
+.selection-label {
+  position: absolute;
+  top: -28px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(15, 23, 42, 0.9);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 10px;
+  font-size: 0.75rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* legend */
+.timebar-legend {
+  display: flex;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 10px;
+  color: #475569;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+.timebar-legend .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  display: inline-block;
+  margin-right: 6px;
+}
+.dot.free { background: rgba(34, 197, 94, 0.7); }
+.dot.occupied { background: rgba(239, 68, 68, 0.7); }
+.dot.selected { background: rgba(59, 130, 246, 0.75); }
+
+.tip {
+  margin: 10px 2px 0;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+/* Footer actions */
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px 16px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.btn {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  font-weight: 800;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+
+.btn.ghost {
+  background: rgba(255, 255, 255, 0.85);
+  color: #0f172a;
+}
+.btn.ghost:hover { transform: translateY(-1px); background: rgba(148, 163, 184, 0.18); }
+
+.btn.primary {
+  border: none;
+  background: linear-gradient(135deg, #60a5fa, #3b82f6);
+  color: #fff;
+  box-shadow: 0 14px 30px rgba(59, 130, 246, 0.28);
+}
+.btn.primary:hover { transform: translateY(-1px); box-shadow: 0 18px 38px rgba(59, 130, 246, 0.32); }
+
 
 </style>

@@ -233,7 +233,10 @@ const loading = ref(true);
 
 // 预约弹窗状态（保留前端本地逻辑）
 const showReservationModal = ref(false);
-const selectedSeat = ref(null); // Three 对象
+import { shallowRef, markRaw } from 'vue';
+
+const selectedSeat = shallowRef<THREE.Object3D | null>(null);
+
 const reservationSeatId = ref(''); // 座位编号
 const reservationForm = reactive({
   date: '',
