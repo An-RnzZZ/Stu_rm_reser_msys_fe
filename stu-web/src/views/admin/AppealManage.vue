@@ -398,7 +398,7 @@ const getAdminId = () => {
 const loadAppeals = async () => {
   loading.value = true
   try {
-    const response = await fetch('http://localhost:8080/admin/appeals')
+    const response = await fetch('http://120.46.219.204:8080/admin/appeals')
     const result = await response.json()
 
     if (result.code === 200) {
@@ -467,7 +467,7 @@ const confirmProcess = async () => {
   processLoading.value = true
   try {
     const endpoint = processType.value === 'approve' ? 'approve' : 'reject'
-    const response = await fetch(`http://localhost:8080/admin/appeals/${processAppeal.value.appealId}/${endpoint}`, {
+    const response = await fetch(`http://120.46.219.204:8080/admin/appeals/${processAppeal.value.appealId}/${endpoint}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

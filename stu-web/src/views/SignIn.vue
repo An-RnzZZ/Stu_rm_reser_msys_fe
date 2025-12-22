@@ -217,7 +217,7 @@ const loadTodayReservations = async () => {
   loading.value = true
   try {
     // 获取用户所有预约
-    const response = await fetch(`http://localhost:8080/admin/reservations/user/${userId}`)
+    const response = await fetch(`http://120.46.219.204:8080/admin/reservations/user/${userId}`)
     const result = await response.json()
 
     if (result.code === 200) {
@@ -244,7 +244,7 @@ const loadSignStatusForReservations = async () => {
   if (!userId) return
 
   try {
-    const response = await fetch(`http://localhost:8080/sign/user/${userId}`)
+    const response = await fetch(`http://120.46.219.204:8080/sign/user/${userId}`)
     const result = await response.json()
 
     if (result.code === 200) {
@@ -280,7 +280,7 @@ const handleSignIn = async (resv: Reservation) => {
   try {
     console.log('签到请求参数:', { userId, resvId: resv.resvId })
 
-    const response = await fetch('http://localhost:8080/sign/in', {
+    const response = await fetch('http://120.46.219.204:8080/sign/in', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -317,7 +317,7 @@ const handleSignOut = async (resv: Reservation) => {
 
   signingResvId.value = resv.resvId
   try {
-    const response = await fetch('http://localhost:8080/sign/out', {
+    const response = await fetch('http://120.46.219.204:8080/sign/out', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -350,7 +350,7 @@ const loadSignRecords = async () => {
 
   recordsLoading.value = true
   try {
-    const response = await fetch(`http://localhost:8080/sign/user/${userId}`)
+    const response = await fetch(`http://120.46.219.204:8080/sign/user/${userId}`)
     const result = await response.json()
 
     if (result.code === 200) {

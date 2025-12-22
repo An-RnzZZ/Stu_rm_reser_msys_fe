@@ -335,7 +335,7 @@ const filteredViolations = computed(() => {
 const loadViolations = async () => {
   loading.value = true
   try {
-    const response = await fetch('http://localhost:8080/admin/violations')
+    const response = await fetch('http://120.46.219.204:8080/admin/violations')
     const result = await response.json()
 
     if (result.code === 200) {
@@ -365,7 +365,7 @@ const calculateStats = () => {
 const triggerViolationCheck = async () => {
   checkLoading.value = true
   try {
-    const response = await fetch('http://localhost:8080/admin/violations/check', {
+    const response = await fetch('http://120.46.219.204:8080/admin/violations/check', {
       method: 'POST'
     })
     const result = await response.json()
@@ -387,7 +387,7 @@ const triggerViolationCheck = async () => {
 // 清除违规
 const clearViolation = async (violation: Violation) => {
   try {
-    const response = await fetch(`http://localhost:8080/admin/violations/${violation.violationId}`, {
+    const response = await fetch(`http://120.46.219.204:8080/admin/violations/${violation.violationId}`, {
       method: 'DELETE'
     })
     const result = await response.json()

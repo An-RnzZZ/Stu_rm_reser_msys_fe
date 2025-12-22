@@ -220,21 +220,21 @@ const getStatusText = (dateStr: string) => {
 const loadStats = async () => {
   try {
     // 获取用户数量
-    const usersRes = await fetch('http://localhost:8080/admin/users')
+    const usersRes = await fetch('http://120.46.219.204:8080/admin/users')
     const usersData = await usersRes.json()
     if (usersData.code === 200) {
       stats.totalUsers = usersData.data?.length || 0
     }
 
     // 获取座位数量
-    const seatsRes = await fetch('http://localhost:8080/admin/seats')
+    const seatsRes = await fetch('http://120.46.219.204:8080/admin/seats')
     const seatsData = await seatsRes.json()
     if (seatsData.code === 200) {
       stats.totalSeats = seatsData.data?.length || 0
     }
 
     // 获取预约数量
-    const reservationsRes = await fetch('http://localhost:8080/admin/reservations')
+    const reservationsRes = await fetch('http://120.46.219.204:8080/admin/reservations')
     const reservationsData = await reservationsRes.json()
     if (reservationsData.code === 200) {
       const today = new Date().toISOString().split('T')[0]
@@ -244,7 +244,7 @@ const loadStats = async () => {
     }
 
     // 获取签到数量
-    const signsRes = await fetch('http://localhost:8080/admin/signs')
+    const signsRes = await fetch('http://120.46.219.204:8080/admin/signs')
     const signsData = await signsRes.json()
     if (signsData.code === 200) {
       stats.todaySigns = signsData.data?.length || 0

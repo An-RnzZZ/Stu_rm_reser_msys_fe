@@ -233,7 +233,7 @@ const currentUser = ref<User | null>(null)
 const loadUsers = async () => {
   loading.value = true
   try {
-    const response = await fetch('http://localhost:8080/admin/users')
+    const response = await fetch('http://120.46.219.204:8080/admin/users')
     const result = await response.json()
 
     if (result.code === 200) {
@@ -281,7 +281,7 @@ const submitEdit = async () => {
 
   submitLoading.value = true
   try {
-    const response = await fetch(`http://localhost:8080/admin/users/${editForm.userId}`, {
+    const response = await fetch(`http://120.46.219.204:8080/admin/users/${editForm.userId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -310,7 +310,7 @@ const submitEdit = async () => {
 // 删除用户
 const handleDelete = async (user: User) => {
   try {
-    const response = await fetch(`http://localhost:8080/admin/users/${user.userId}`, {
+    const response = await fetch(`http://120.46.219.204:8080/admin/users/${user.userId}`, {
       method: 'DELETE'
     })
 
@@ -335,7 +335,7 @@ const handleViewReservations = async (user: User) => {
   reservationsLoading.value = true
 
   try {
-    const response = await fetch(`http://localhost:8080/admin/reservations/user/${user.userId}`)
+    const response = await fetch(`http://120.46.219.204:8080/admin/reservations/user/${user.userId}`)
     const result = await response.json()
 
     if (result.code === 200) {

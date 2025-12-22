@@ -376,7 +376,7 @@ const loadData = async () => {
 // 加载违规状态
 const loadViolationStatus = async (userId: string) => {
   try {
-    const response = await fetch(`http://localhost:8080/violation/status/${userId}`)
+    const response = await fetch(`http://120.46.219.204:8080/violation/status/${userId}`)
     const result = await response.json()
     if (result.code === 200 && result.data) {
       Object.assign(violationStatus, result.data)
@@ -390,7 +390,7 @@ const loadViolationStatus = async (userId: string) => {
 const loadViolations = async (userId: string) => {
   loading.value = true
   try {
-    const response = await fetch(`http://localhost:8080/violation/user/${userId}`)
+    const response = await fetch(`http://120.46.219.204:8080/violation/user/${userId}`)
     const result = await response.json()
     if (result.code === 200) {
       violations.value = result.data || []
@@ -407,7 +407,7 @@ const loadViolations = async (userId: string) => {
 const loadAppeals = async (userId: string) => {
   appealsLoading.value = true
   try {
-    const response = await fetch(`http://localhost:8080/violation/appeal/user/${userId}`)
+    const response = await fetch(`http://120.46.219.204:8080/violation/appeal/user/${userId}`)
     const result = await response.json()
     if (result.code === 200) {
       appeals.value = result.data || []
@@ -434,7 +434,7 @@ const confirmMakeup = async () => {
 
   makeupLoading.value = true
   try {
-    const response = await fetch('http://localhost:8080/violation/makeup', {
+    const response = await fetch('http://120.46.219.204:8080/violation/makeup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -467,7 +467,7 @@ const handleAppeal = async (violation: Violation) => {
 
   // 检查是否已申诉
   try {
-    const response = await fetch(`http://localhost:8080/violation/appeal/check?userId=${userId}&violationId=${violation.violationId}`)
+    const response = await fetch(`http://120.46.219.204:8080/violation/appeal/check?userId=${userId}&violationId=${violation.violationId}`)
     const result = await response.json()
     if (result.code === 200 && result.data?.hasAppealed) {
       ElMessage.warning('您已对该违规记录提交过申诉')
@@ -494,7 +494,7 @@ const submitAppeal = async () => {
 
   appealLoading.value = true
   try {
-    const response = await fetch('http://localhost:8080/violation/appeal', {
+    const response = await fetch('http://120.46.219.204:8080/violation/appeal', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

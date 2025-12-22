@@ -263,7 +263,7 @@ const timeFilter = ref({
 
 // --- 创建API实例 ---
 const api = axios.create({
-  baseURL: 'http://localhost:8080',
+  baseURL: 'http://120.46.219.204:8080',
   timeout: 5000
 })
 
@@ -371,7 +371,7 @@ const fetchMyReservations = async () => {
   }
 
   try {
-    const response = await fetch(`http://localhost:8080/admin/reservations/user/${userId}`);
+    const response = await fetch(`http://120.46.219.204:8080/admin/reservations/user/${userId}`);
     const result = await response.json();
 
     if (result.code === 200) {

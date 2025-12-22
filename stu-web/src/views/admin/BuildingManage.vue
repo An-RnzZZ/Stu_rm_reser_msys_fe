@@ -1490,7 +1490,7 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
   parentGroup.add(roomGroup);
 };
 const api = axios.create({
-  baseURL: 'http://localhost:8080',  // <<< 改成你 Spring Boot 实际地址和端口
+  baseURL: 'http://120.46.219.204:8080',  // <<< 改成你 Spring Boot 实际地址和端口
   // withCredentials: true, // 如果有 cookie 之类的再开
 });
 // 然后在 fetchFloorLayout 里用这个实例：

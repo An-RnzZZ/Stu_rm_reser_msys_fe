@@ -245,10 +245,10 @@ const handleSubmit = async () => {
     const requestData = getRequestData()
 
     console.log('发送的数据:', requestData)
-    console.log('发送到:', 'http://localhost:8080/user/register')
+    console.log('发送到:', 'http://120.46.219.204:8080/user/register')
 
     // 发送POST请求到后端
-    const response = await fetch('http://localhost:8080/user/register', {
+    const response = await fetch('http://120.46.219.204:8080/user/register', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

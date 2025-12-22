@@ -113,7 +113,7 @@ const handleLogin = async () => {
 
   try {
     // 1. 发送登录请求
-    const response = await fetch('http://localhost:8080/user/login', {
+    const response = await fetch('http://120.46.219.204:8080/user/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -154,7 +154,7 @@ const handleLogin = async () => {
 const fetchUserId = async (userAccount: string): Promise<number | null> => {
   try {
     // 获取所有用户列表
-    const response = await fetch('http://localhost:8080/admin/users')
+    const response = await fetch('http://120.46.219.204:8080/admin/users')
     const result = await response.json()
 
     if (result.code === 200 && result.data) {

@@ -1727,7 +1727,7 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
 };
 
 const api = axios.create({
-  baseURL: 'http://localhost:8080',
+  baseURL: 'http://120.46.219.204:8080',
 });
 
 const fetchFloorLayout = async (floorNum: number) => {
