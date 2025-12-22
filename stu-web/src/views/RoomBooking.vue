@@ -1,72 +1,33 @@
 <template>
   <div class="scene-container" ref="canvasContainer">
-    <canvas ref="canvasRef"></canvas>
+    <canvas ref="canvasRef" :class="{ 'canvas-disabled': isModalOpen }" />
 
-    <!-- 加载进度条 -->
+    <!-- ================== 加载中 ================== -->
     <div v-if="loading" class="loading-overlay">
       <div class="spinner"></div>
       <p>正在生成图书馆场景...</p>
     </div>
 
-    <!-- 悬浮 UI -->
+    <!-- ================== UI 悬浮层 ================== -->
     <div class="ui-overlay" :class="{ 'ui-hidden': loading }">
-      <!-- 返回建筑概览 -->
+      <!-- 顶部按钮 -->
       <transition name="fade">
-        <button
-          v-if="viewMode !== 'building'"
-          @click="resetView"
-          class="back-btn"
-        >
-          ← 返回建筑概览
-        </button>
-      </transition>
-
-      <!-- 左侧：楼层时间筛选面板（只在楼层视图显示） -->
-      <transition name="fade">
-        <div v-if="viewMode === 'floor'" class="time-filter-panel">
-          <h3>座位时间筛选</h3>
-          <p class="current-time">当前时间：{{ nowTimeLabel }}</p>
-
-          <div class="form-row">
-            <label>日期</label>
-            <select v-model="reservationForm.date" @change="updateTimeBar">
-              <option v-for="d in dateOptions" :key="d.value" :value="d.value">
-                {{ d.label }}
-              </option>
-            </select>
-          </div>
-
-          <div class="filter-row">
-            <label>开始时间（默认当前）</label>
-            <select v-model="timeFilter.start" @change="applyTimeFilter">
-              <option v-for="t in timeSlots" :key="t" :value="t">
-                {{ t }}
-              </option>
-            </select>
-          </div>
-
-          <div class="filter-row">
-            <label>结束时间（最晚 22:00）</label>
-            <select v-model="timeFilter.end" @change="applyTimeFilter">
-              <option v-for="t in timeSlots" :key="t" :value="t">
-                {{ t }}
-              </option>
-            </select>
-          </div>
-
-          <p class="hint">
-            · 座位在当前时间段内<br />
-            · 预约结束时间 ≤ 所选结束时间 → 显示
-            <span class="tag tag-partial">半空闲</span><br />
-            · 预约结束时间 &gt; 所选结束时间 → 显示
-            <span class="tag tag-occupied">占用</span>
-          </p>
+        <div>
+          <button v-if="viewMode !== 'campus'" @click="resetView" class="back-btn">
+            ← 返回建筑概览
+          </button>
         </div>
       </transition>
 
       <!-- 楼层选择 -->
       <transition name="fade">
-        <div class="floor-selector" v-if="viewMode === 'floor'">
+        <div
+          v-if="viewMode === 'floor'"
+          class="floor-selector"
+          @mousedown.stop
+          @mouseup.stop
+          @click.stop
+        >
           <div class="floor-label">选择楼层:</div>
           <button
             v-for="floorNum in totalFloors"
@@ -79,16 +40,55 @@
         </div>
       </transition>
 
+      <!-- 时间筛选面板 -->
+      <div
+        v-if="viewMode === 'floor'"
+        class="time-filter-panel"
+        @mousedown.stop
+        @mouseup.stop
+        @click.stop
+      >
+        <h3>时间筛选</h3>
+        <p class="current-time">当前时间：{{ nowTimeLabel }}</p>
+
+        <div class="filter-row">
+          <label>日期</label>
+          <select v-model="timeFilter.date">
+            <option v-for="d in dateOptions" :key="d.value" :value="d.value">{{ d.label }}</option>
+          </select>
+        </div>
+
+        <div class="filter-row">
+          <label>开始</label>
+          <select v-model="timeFilter.start">
+            <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+
+        <div class="filter-row">
+          <label>结束</label>
+          <select v-model="timeFilter.end">
+            <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+
+        <div class="hint">
+          <span class="tag tag-partial">半空闲</span>
+          <span class="tag tag-occupied">占用</span>
+          由预约时间与筛选区间重叠计算
+        </div>
+      </div>
+
       <!-- 图例 -->
       <div class="legend" v-if="viewMode === 'floor'">
         <div class="item"><span class="dot free"></span>空闲</div>
         <div class="item"><span class="dot partial"></span>半空闲</div>
         <div class="item"><span class="dot occupied"></span>占用</div>
-        <div class="item"><span class="dot selected"></span>您的选择</div>
+        <div class="item"><span class="dot disabled"></span>维修中</div>
       </div>
     </div>
 
-    <!-- 座位 Tooltip -->
+    <!-- Tooltip -->
     <div
       class="tooltip"
       ref="tooltipRef"
@@ -98,107 +98,124 @@
       {{ hoverInfo }}
     </div>
 
-    <!-- 预约弹窗（点击可预约座位时） -->
-    <div v-if="showReservationModal" class="reservation-overlay">
-      <div class="reservation-dialog">
-        <h2>预约座位</h2>
-        <p class="seat-label">
-          当前座位：<strong>{{ reservationSeatId }}</strong>
-        </p>
+    <!-- ================== 用户预约弹窗 ================== -->
+    <div
+      v-if="showReservationModal"
+      class="reservation-overlay"
+      @click.self="showReservationModal = false"
+      @mousedown.stop
+      @mouseup.stop
+    >
+      <div class="reservation-dialog" @click.stop @mousedown.stop @mouseup.stop>
+        <!-- Header -->
+        <div class="dialog-header">
+          <div class="title-wrap">
+            <h2 class="dialog-title">预约座位</h2>
+            <div class="seat-meta">
+              <span class="seat-pill">座位 {{ selectedSeatUI.id }}</span>
+              <span class="status-pill" :class="selectedSeatUI.status">
+                {{ selectedSeatUI.status === 'partial' ? '半空闲' : '空闲' }}
+              </span>
+            </div>
+          </div>
 
-        <!-- 添加时间条 -->
-        <div class="time-bar-container" v-if="selectedSeat">
-          <p class="time-bar-title">
-            座位占用情况（{{ reservationForm.date }} {{ timeFilter.start || '08:00' }} - {{ timeFilter.end || '22:00' }}）
-          </p>
-          <div class="time-bar">
-            <!-- 时间刻度 -->
-            <div class="time-ticks">
-          <span v-for="tick in timeTicks" :key="tick" class="time-tick">
-            {{ tick }}
-          </span>
+          <button class="icon-close" @click="showReservationModal = false" aria-label="关闭">
+            ✕
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="dialog-body">
+          <div class="form-grid">
+            <div class="field">
+              <label>日期</label>
+              <select v-model="reservationForm.date">
+                <option v-for="d in dateOptions" :key="d.value" :value="d.value">
+                  {{ d.label }}
+                </option>
+              </select>
             </div>
 
-            <!-- 时间条本身 -->
-            <div class="time-bar-slots">
-              <div
-                v-for="slot in timeBarSlots"
-                :key="slot.id"
-                class="time-slot"
-                :class="{
-              'occupied': slot.occupied,
-              'free': !slot.occupied && !slot.selected,
-              'selected': slot.selected
-            }"
-                :style="{
-              width: slot.width + '%',
-              left: slot.position + '%'
-            }"
-                :title="`${slot.start} - ${slot.end}: ${slot.occupied ? '已被预约' : '空闲'}`"
-              >
+            <div class="field">
+              <label>开始</label>
+              <select v-model="reservationForm.start">
+                <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label>结束</label>
+              <select v-model="reservationForm.end">
+                <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+              </select>
+            </div>
+
+            <div class="quick">
+              <label>快捷时长</label>
+              <div class="quick-row">
+                <button class="chip" type="button" @click="quickPick(60)">+1h</button>
+                <button class="chip" type="button" @click="quickPick(90)">+1.5h</button>
+                <button class="chip" type="button" @click="quickPick(120)">+2h</button>
+                <button class="chip" type="button" @click="quickPick(180)">+3h</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="timebar-card">
+            <div class="timebar-head">
+              <div class="sub-title">时间条</div>
+              <div class="sub-hint">拖拽选择区间（红色不可选）</div>
+            </div>
+
+            <div
+              class="time-bar"
+              @mousedown.stop.prevent="onBarMouseDown"
+              @mousemove.stop.prevent="onBarMouseMove"
+              @mouseup.stop.prevent="onBarMouseUp"
+              @mouseleave.stop.prevent="onBarMouseUp"
+            >
+              <div class="time-bar-slots">
+                <div
+                  v-for="slot in barSlots"
+                  :key="slot.key"
+                  class="time-slot"
+                  :class="slot.cls"
+                  :style="{ left: slot.left, width: slot.width }"
+                  @mousedown.stop.prevent="onSlotMouseDown(slot)"
+                  @mouseenter.stop.prevent="onSlotMouseEnter(slot)"
+                  :title="slot.label"
+                />
+                <div
+                  v-if="selectionIndicator"
+                  class="user-selection-indicator"
+                  :style="{ left: selectionIndicator.left, width: selectionIndicator.width }"
+                >
+                  <div class="selection-label">
+                    {{ reservationForm.start }} - {{ reservationForm.end }}
+                  </div>
+                </div>
               </div>
             </div>
 
-            <!-- 用户选择的时间段指示器 -->
-            <div
-              v-if="userSelectionStart !== null && userSelectionEnd !== null"
-              class="user-selection-indicator"
-              :style="{
-            left: userSelectionStart + '%',
-            width: (userSelectionEnd - userSelectionStart) + '%'
-          }"
-            >
-              <div class="selection-label">您的选择</div>
+            <!-- 刻度移到时间条下方 -->
+            <div class="time-ticks">
+              <span class="tick" v-for="t in timeTicks" :key="t">{{ t }}</span>
+            </div>
+
+            <div class="timebar-legend">
+              <div class="lg"><span class="dot free"></span>可预约</div>
+              <div class="lg"><span class="dot occupied"></span>已占用</div>
+              <div class="lg"><span class="dot selected"></span>已选择</div>
             </div>
           </div>
 
-          <!-- 时间条图例 -->
-          <div class="time-bar-legend">
-            <div class="legend-item">
-              <span class="color-dot free"></span>空闲
-            </div>
-            <div class="legend-item">
-              <span class="color-dot occupied"></span>已被预约
-            </div>
-            <div class="legend-item">
-              <span class="color-dot selected"></span>您选择的时间
-            </div>
-          </div>
+          <p class="tip">建议预约至少 30 分钟。若无法选择，说明与已占用时间冲突。</p>
         </div>
 
-        <div class="form-row">
-          <label>日期</label>
-          <select v-model="reservationForm.date" @change="updateTimeBar">
-            <option v-for="d in dateOptions" :key="d.value" :value="d.value">
-              {{ d.label }}
-            </option>
-          </select>
-        </div>
-
-        <div class="form-row time-row">
-          <div>
-            <label>开始时间</label>
-            <select v-model="reservationForm.start" @change="updateUserSelection">
-              <option v-for="t in timeSlots" :key="'start-' + t" :value="t">
-                {{ t }}
-              </option>
-            </select>
-          </div>
-          <div>
-            <label>结束时间（最晚 22:00）</label>
-            <select v-model="reservationForm.end" @change="updateUserSelection">
-              <option v-for="t in timeSlots" :key="'end-' + t" :value="t">
-                {{ t }}
-              </option>
-            </select>
-          </div>
-        </div>
-
+        <!-- Footer -->
         <div class="dialog-actions">
-          <button class="btn-cancel" @click="cancelReservation">取消</button>
-          <button class="btn-confirm" @click="confirmReservation">
-            确认预约
-          </button>
+          <button class="btn ghost" @click="showReservationModal = false">取消</button>
+          <button class="btn primary" @click="confirmReservation">确认预约</button>
         </div>
       </div>
     </div>
@@ -206,7 +223,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, reactive } from 'vue';
+import { ref, shallowRef, markRaw, onMounted, onBeforeUnmount, reactive, watch, computed } from 'vue';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -218,11 +235,42 @@ import gsap from 'gsap';
 import axios from 'axios';
 
 // --- 状态管理 ---
+
+const totalFloors = ref(0);
+const isUserMode = true;
+
+const selectedSeat = shallowRef<THREE.Object3D | null>(null);
+const selectedSeatUI = reactive<{
+  id: string;
+  status: string;
+  backendSeatId: number | string | null;
+  enabled: boolean;
+  resvSummary: Array<{ start: string; end: string }>;
+}>({
+  id: '',
+  status: '',
+  backendSeatId: null,
+  enabled: true,
+  resvSummary: []
+});
+
+// 用户在弹窗里选择的预约时间
+const userReserve = reactive({
+  start: '',
+  end: ''
+});
+const reservationForm = reactive({
+  date: '',
+  start: '',
+  end: ''
+});
+
 const canvasRef = ref(null);
 const canvasContainer = ref(null);
-const viewMode = ref('building');
+type ViewMode = 'campus' | 'building' | 'floor';
+const viewMode = ref<ViewMode>('campus');
 const currentFloor = ref(1);
-const totalFloors = 3;
+const DEFAULT_FLOORS = 3;
 
 const hoverInfo = ref('');
 const tooltipRef = ref(null);
@@ -231,146 +279,396 @@ const freezeTooltip = ref(true);
 
 const loading = ref(true);
 
-// 预约弹窗状态（保留前端本地逻辑）
-const showReservationModal = ref(false);
-import { shallowRef, markRaw } from 'vue';
+const timeTicks = computed(() => {
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+  const totalMinutes = filterEndMin - filterStartMin;
 
-const selectedSeat = shallowRef<THREE.Object3D | null>(null);
+  const ticks = [];
 
-const reservationSeatId = ref(''); // 座位编号
-const reservationForm = reactive({
-  date: '',
-  start: '',
-  end: ''
+  // 固定显示5个刻度
+  const interval = totalMinutes / 4;
+
+  for (let i = 0; i <= 4; i++) {
+    const time = filterStartMin + i * interval;
+    const h = Math.floor(time / 60);
+    const m = Math.floor(time % 60);
+    ticks.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+  }
+
+  return ticks;
 });
 
-// 时间条相关状态
-const timeBarSlots = ref([]); // 时间条上的时间段
-const timeTicks = ref(['08:00', '12:00', '16:00', '20:00', '22:00']); // 时间刻度
-const userSelectionStart = ref(null); // 用户选择开始时间在时间条上的位置百分比
-const userSelectionEnd = ref(null); // 用户选择结束时间在时间条上的位置百分比
-// --- 时间条相关函数 ---
+// ======================
+// 幽灵墙 Padding
+// ======================
+const SHELL_PADDING_X = 2.5;
+const SHELL_PADDING_Z = 4.0;
 
-// 更新时间条显示
-const updateTimeBar = () => {
-  if (!selectedSeat.value) return;
+// ======================
+// 时间条核心
+// ======================
 
-  const seat = selectedSeat.value;
-  const reservations = seat.userData.resvSummary || [];
+const parseTimeStr = (str) => {
+  if (!str || typeof str !== 'string' || !str.includes(':')) return null;
+  const [h, m] = str.split(':').map((v) => parseInt(v, 10));
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+};
+const BAR_START_MIN = 8 * 60;
+const BAR_END_MIN = 22 * 60;
+const SLOT_STEP = 30;
 
-  // 修改这里：使用左侧时间筛选面板的时间，而不是固定的 08:00-22:00
-  const dayStart = parseTimeStr(timeFilter.start) || 8 * 60; // 默认 08:00
-  const dayEnd = parseTimeStr(timeFilter.end) || 22 * 60; // 默认 22:00
-  const dayDuration = dayEnd - dayStart; // 动态计算时长
+const dragging = ref(false);
+const dragAnchorMin = ref<number | null>(null);
+const dragCurrentMin = ref<number | null>(null);
 
-  // 筛选出选定日期的预约
-  const dateReservations = reservations.filter(res => {
-    // 注意：这里假设resvSummary中的日期格式与reservationForm.date相同
-    // 如果格式不同，需要调整
-    return true; // 暂时显示所有预约，需要根据实际数据调整
-  });
+/** 计算某分钟在条上的 left% */
+const toPercent = (min: number) => {
+  const t = (min - BAR_START_MIN) / (BAR_END_MIN - BAR_START_MIN);
+  const pct = Math.max(0, Math.min(1, t)) * 100;
+  return `${pct}%`;
+};
 
-  // 生成时间槽
-  const slots = [];
+// 获取合并后的占用区间（去重和合并）
+const getMergedOccupiedRanges = () => {
+  const list = selectedSeatUI.resvSummary;
+  if (!Array.isArray(list) || list.length === 0) return [];
 
-  // 如果有预约，按预约时间段划分
-  if (dateReservations.length > 0) {
-    // 按开始时间排序
-    dateReservations.sort((a, b) => parseTimeStr(a.start) - parseTimeStr(b.start));
+  // 转换并过滤无效的时间
+  const ranges = list
+    .map(r => {
+      const s = parseTimeStr(r.start);
+      const e = parseTimeStr(r.end);
+      if (s == null || e == null) return null;
+      return { s: Math.max(BAR_START_MIN, s), e: Math.min(BAR_END_MIN, e) };
+    })
+    .filter(Boolean) as Array<{ s: number; e: number }>;
 
-    // 添加第一个空闲段（从筛选的开始时间到第一个预约开始）
-    const firstReservation = dateReservations[0];
-    const firstStart = parseTimeStr(firstReservation.start);
-    if (firstStart > dayStart) {
-      slots.push({
-        id: 'free-1',
-        start: timeFilter.start || '08:00', // 使用筛选的开始时间
-        end: firstReservation.start,
-        occupied: false,
-        startMin: dayStart,
-        endMin: firstStart,
-        width: ((firstStart - dayStart) / dayDuration) * 100,
-        position: 0
-      });
+  if (ranges.length === 0) return [];
+
+  // 按开始时间排序
+  ranges.sort((a, b) => a.s - b.s);
+
+  // 合并重叠的区间
+  const merged: Array<{ s: number; e: number }> = [];
+  let current = ranges[0];
+
+  for (let i = 1; i < ranges.length; i++) {
+    const next = ranges[i];
+    // 如果当前区间与下一个区间重叠或连续（允许微小间隔）
+    if (next.s <= current.e + 1) {
+      // 合并区间
+      current.e = Math.max(current.e, next.e);
+    } else {
+      // 不重叠，保存当前区间，开始新的区间
+      merged.push({ ...current });
+      current = next;
     }
+  }
+  merged.push(current);
 
-    // 添加预约时间段和之间的空闲段
-    for (let i = 0; i < dateReservations.length; i++) {
-      const res = dateReservations[i];
-      const resStart = parseTimeStr(res.start);
-      const resEnd = parseTimeStr(res.end);
+  return merged;
+};
 
-      // 预约时间段
-      slots.push({
-        id: `occupied-${i}`,
-        start: res.start,
-        end: res.end,
-        occupied: true,
-        startMin: resStart,
-        endMin: resEnd,
-        width: ((resEnd - resStart) / dayDuration) * 100,
-        position: ((resStart - dayStart) / dayDuration) * 100
-      });
+const occupiedRanges = computed(() => {
+  const list = selectedSeatUI.resvSummary;
+  if (!Array.isArray(list) || list.length === 0) return [];
 
-      // 预约后的空闲段（如果不是最后一个预约）
-      if (i < dateReservations.length - 1) {
-        const nextRes = dateReservations[i + 1];
-        const nextStart = parseTimeStr(nextRes.start);
+  const ranges = list
+    .map(r => {
+      const s = parseTimeStr(r.start);
+      const e = parseTimeStr(r.end);
+      if (s == null || e == null) return null;
+      return { s: Math.max(BAR_START_MIN, s), e: Math.min(BAR_END_MIN, e) };
+    })
+    .filter(Boolean) as Array<{ s: number; e: number }>;
 
-        if (resEnd < nextStart) {
-          slots.push({
-            id: `free-${i + 2}`,
-            start: res.end,
-            end: nextRes.start,
-            occupied: false,
-            startMin: resEnd,
-            endMin: nextStart,
-            width: ((nextStart - resEnd) / dayDuration) * 100,
-            position: ((resEnd - dayStart) / dayDuration) * 100
-          });
-        }
-      }
-    }
+  ranges.sort((a, b) => a.s - b.s);
+  return ranges;
+});
 
-    // 添加最后一个预约后的空闲段
-    const lastReservation = dateReservations[dateReservations.length - 1];
-    const lastEnd = parseTimeStr(lastReservation.end);
-    if (lastEnd < dayEnd) {
-      slots.push({
-        id: `free-last`,
-        start: lastReservation.end,
-        end: timeFilter.end || '22:00', // 使用筛选的结束时间
-        occupied: false,
-        startMin: lastEnd,
-        endMin: dayEnd,
-        width: ((dayEnd - lastEnd) / dayDuration) * 100,
-        position: ((lastEnd - dayStart) / dayDuration) * 100
-      });
-    }
-  } else {
-    // 没有预约，整个时间段都是空闲的
+
+const onSlotMouseEnter = (slot: { min: number; cls: string }) => {
+  if (!dragging.value) return;
+  if (dragAnchorMin.value == null) return;
+  if (slot.cls === 'occupied') return;
+
+  // ✅ 关键：如果还是同一个格子，就别重复 commit
+  if (dragCurrentMin.value === slot.min) return;
+
+  dragCurrentMin.value = slot.min;
+  commitRangeToForm(dragAnchorMin.value, slot.min);
+};
+
+/** 当前选区（分钟） */
+const getSelectedRange = () => {
+  const s = parseTimeStr(reservationForm.start);
+  const e = parseTimeStr(reservationForm.end);
+  if (s == null || e == null || e <= s) return null;
+
+  // 确保时间在左侧筛选面板的范围内
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+
+  const validS = Math.max(filterStartMin, s);
+  const validE = Math.min(filterEndMin, e);
+
+  if (validE <= validS) return null;
+
+  return {
+    s: validS,
+    e: validE
+  };
+};
+
+/** UI slots：每半小时一个块 */
+/** UI slots：每半小时一个块 */
+const barSlots = computed(() => {
+  const slots: Array<{
+    key: string;
+    min: number;
+    label: string;
+    left: string;
+    width: string;
+    cls: string;
+  }> = [];
+
+  // 使用左侧筛选面板的时间范围
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+
+  // 调试输出，检查时间范围
+  console.log('filterStartMin:', filterStartMin, 'filterEndMin:', filterEndMin);
+
+  // 确保有有效的时间范围
+  if (filterStartMin >= filterEndMin) {
+    console.error('无效的时间范围:', filterStartMin, filterEndMin);
+    return slots;
+  }
+
+  // 获取当前选中的时间范围
+  const selected = getSelectedRange();
+
+  // 计算时间范围
+  const totalMinutes = filterEndMin - filterStartMin;
+
+  for (let m = filterStartMin; m < filterEndMin; m += SLOT_STEP) {
+    const left = ((m - filterStartMin) / totalMinutes) * 100;
+    const width = (SLOT_STEP / totalMinutes) * 100;
+
+    const occupied = isSlotOccupied(m);
+    const inSelected = !!selected && m >= selected.s && m < selected.e;
+
+    let cls = 'free';
+    if (occupied) cls = 'occupied';
+    if (inSelected) cls = 'selected';
+
+    const hh = String(Math.floor(m / 60)).padStart(2, '0');
+    const mm = String(m % 60).padStart(2, '0');
+
     slots.push({
-      id: 'free-all',
-      start: timeFilter.start || '08:00', // 使用筛选的开始时间
-      end: timeFilter.end || '22:00',     // 使用筛选的结束时间
-      occupied: false,
-      startMin: dayStart,
-      endMin: dayEnd,
-      width: 100,
-      position: 0
+      key: `${m}`,
+      min: m,
+      label: `${hh}:${mm}`,
+      left: `${left}%`,
+      width: `${width}%`,
+      cls
     });
   }
 
-  timeBarSlots.value = slots;
+  console.log('生成的slots数量:', slots.length);
+  return slots;
+});
 
-  // 更新时间刻度：需要根据动态的时间范围更新
-  updateTimeTicks(dayStart, dayEnd);
+/** 选区虚线框（覆盖显示） */
+const selectionIndicator = computed(() => {
+  const r = getSelectedRange();
+  if (!r) return null;
 
-  // 更新用户选择的位置
-  updateUserSelection();
+  // 使用左侧筛选面板的时间范围
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+  const totalMinutes = filterEndMin - filterStartMin;
+
+  const left = ((r.s - filterStartMin) / totalMinutes) * 100;
+  const width = ((r.e - r.s) / totalMinutes) * 100;
+
+  return { left: `${left}%`, width: `${width}%` };
+});
+
+/** 把分钟数格式化回 HH:MM */
+const formatMin = (min: number) => {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 };
 
-// 新增：更新时间刻度（根据动态的时间范围）
+/** 校验一个区间内是否碰到 occupied（只要有交集就不允许） */
+const rangeHitsOccupied = (s: number, e: number) => {
+  for (let m = s; m < e; m += SLOT_STEP) {
+    if (isSlotOccupied(m)) return true;
+  }
+  return false;
+};
+
+const commitRangeToForm = (a: number, b: number) => {
+  // 使用左侧筛选面板的范围
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+
+  const s = Math.max(filterStartMin, Math.min(a, b));
+  const e = Math.min(filterEndMin, Math.max(a, b) + SLOT_STEP); // 包含当前格子 => end + 30min
+
+  if (e <= s) return;
+
+  // 不允许选到 occupied
+  if (rangeHitsOccupied(s, e)) return;
+
+  reservationForm.start = formatMin(s);
+  reservationForm.end = formatMin(e);
+};
+
+// ===== 鼠标交互 =====
+
+const onSlotMouseDown = (slot: { min: number; cls: string }) => {
+  // occupied 不让点
+  if (slot.cls === 'occupied') return;
+
+  dragging.value = true;
+  dragAnchorMin.value = slot.min;
+  dragCurrentMin.value = slot.min;
+
+  // 单击默认选一个 slot（30分钟）
+  commitRangeToForm(slot.min, slot.min);
+};
+
+const isSlotOccupied = (slotStartMin: number) => {
+  // 一个 slot 的区间：[slotStartMin, slotStartMin + 30)
+  const slotEnd = slotStartMin + SLOT_STEP;
+
+  const list = selectedSeatUI.resvSummary;
+  if (!Array.isArray(list) || list.length === 0) return false;
+
+  for (const r of list) {
+    const s = parseTimeStr(r.start);
+    const e = parseTimeStr(r.end);
+    if (s == null || e == null) continue;
+
+    // 有交集即算占用
+    if (slotStartMin < e && slotEnd > s) return true;
+  }
+  return false;
+};
+
+
+const onBarMouseDown = (event: MouseEvent) => {
+  if (event.target instanceof HTMLElement && event.target.classList.contains('time-slot')) {
+    // 点击格子已经在 onSlotMouseDown 处理
+    return;
+  }
+
+  // 点击空白区域开始拖拽
+  dragging.value = true;
+  const rect = event.currentTarget.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const percent = x / rect.width;
+
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+  const totalMinutes = filterEndMin - filterStartMin;
+
+  // 计算点击位置对应的时间（按30分钟对齐）
+  const minute = filterStartMin + Math.floor(percent * totalMinutes / SLOT_STEP) * SLOT_STEP;
+  const alignedMinute = Math.max(filterStartMin, Math.min(minute, filterEndMin - SLOT_STEP));
+
+  dragAnchorMin.value = alignedMinute;
+  dragCurrentMin.value = alignedMinute;
+  commitRangeToForm(alignedMinute, alignedMinute);
+};
+
+const onBarMouseMove = (event: MouseEvent) => {
+  if (!dragging.value || dragAnchorMin.value == null) return;
+
+  const rect = event.currentTarget.getBoundingClientRect();
+  const x = Math.max(0, Math.min(event.clientX - rect.left, rect.width));
+  const percent = x / rect.width;
+
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+  const totalMinutes = filterEndMin - filterStartMin;
+
+  // 计算鼠标位置对应的时间（按30分钟对齐）
+  const minute = filterStartMin + Math.floor(percent * totalMinutes / SLOT_STEP) * SLOT_STEP;
+  const alignedMinute = Math.max(filterStartMin, Math.min(minute, filterEndMin - SLOT_STEP));
+
+  if (alignedMinute !== dragCurrentMin.value) {
+    dragCurrentMin.value = alignedMinute;
+    commitRangeToForm(dragAnchorMin.value, alignedMinute);
+  }
+};
+
+const onBarMouseUp = () => {
+  dragging.value = false;
+  dragAnchorMin.value = null;
+  dragCurrentMin.value = null;
+};
+
+const showReservationModal = ref(false);
+const isModalOpen = computed(() => showReservationModal.value);
+
+// 类型定义
+type FloorLayoutResp = ResponseMessage<RoomDTO[]> | RoomDTO[];
+
+type BackendBuilding = {
+  buildingId: number;
+  buildingName: string;
+  buildingPosX: number;
+  buildingPosZ: number;
+  buildingFloors: number;
+  buildingRoomsPerFloor: number;
+  buildingSeatsPerRoom: number;
+  buildingWidth: number;
+  buildingDepth: number;
+};
+
+type RoomDTO = {
+  id: number;
+  name: string;
+  type: 'study' | 'info';
+  position: { x: number; z: number };
+  size: { width: number; depth: number };
+  seats: Array<{
+    id: number | string;
+    number: number;
+    x: number;
+    y: number;
+    enabled: boolean;
+    resvSummary: { start: string; end: string }[];
+  }>;
+};
+
+type ResponseMessage<T> = {
+  code: number;
+  message: string;
+  data: T;
+};
+
+// 把后端 Building 转成 createBuildingInstance 需要的 config
+const mapBackendBuildingToConfig = (b: BackendBuilding) => {
+  return {
+    id: b.buildingId,
+    name: b.buildingName,
+    position: { x: b.buildingPosX, z: b.buildingPosZ },
+    floors: b.buildingFloors,
+    roomsPerFloor: b.buildingRoomsPerFloor,
+    seatsPerRoom: b.buildingSeatsPerRoom,
+    width: b.buildingWidth,
+    depth: b.buildingDepth
+  };
+};
+
+// 新增：更新时间刻度（根据动态时间范围）
 const updateTimeTicks = (startMin, endMin) => {
   const duration = endMin - startMin;
   const ticks = [];
@@ -383,15 +681,15 @@ const updateTimeTicks = (startMin, endMin) => {
   };
 
   // 根据时长决定显示几个刻度
-  if (duration <= 60) { // 1小时以内：显示开始和结束
+  if (duration <= 60) {
     ticks.push(formatTime(startMin));
     ticks.push(formatTime(endMin));
-  } else if (duration <= 240) { // 4小时以内：显示3个刻度
+  } else if (duration <= 240) {
     const mid = Math.round((startMin + endMin) / 2);
     ticks.push(formatTime(startMin));
     ticks.push(formatTime(mid));
     ticks.push(formatTime(endMin));
-  } else { // 4小时以上：显示5个刻度
+  } else {
     const interval = duration / 4;
     ticks.push(formatTime(startMin));
     ticks.push(formatTime(startMin + interval));
@@ -402,43 +700,6 @@ const updateTimeTicks = (startMin, endMin) => {
 
   timeTicks.value = ticks;
 };
-
-// 更新用户选择的时间段在时间条上的位置
-// 更新用户选择的时间段在时间条上的位置
-const updateUserSelection = () => {
-  if (!reservationForm.start || !reservationForm.end) return;
-
-  // 使用时间条的实际范围（即筛选的时间范围）
-  const dayStart = parseTimeStr(timeFilter.start) || 8 * 60;
-  const dayEnd = parseTimeStr(timeFilter.end) || 22 * 60;
-  const dayDuration = dayEnd - dayStart;
-
-  const startMin = parseTimeStr(reservationForm.start);
-  const endMin = parseTimeStr(reservationForm.end);
-
-  if (startMin !== null && endMin !== null) {
-    userSelectionStart.value = ((startMin - dayStart) / dayDuration) * 100;
-    userSelectionEnd.value = ((endMin - dayStart) / dayDuration) * 100;
-
-    // 更新时间槽的选中状态
-    timeBarSlots.value.forEach(slot => {
-      slot.selected = false;
-
-      // 检查这个时间段是否与用户选择的时间段有重叠
-      if (startMin < slot.endMin && endMin > slot.startMin) {
-        // 计算重叠部分
-        const overlapStart = Math.max(startMin, slot.startMin);
-        const overlapEnd = Math.min(endMin, slot.endMin);
-
-        // 如果完全在用户选择的时间内，标记为选中
-        if (overlapStart === slot.startMin && overlapEnd === slot.endMin) {
-          slot.selected = true;
-        }
-      }
-    });
-  }
-};
-
 
 // 楼层时间筛选状态
 const timeFilter = reactive({
@@ -455,12 +716,26 @@ const timeSlots = ref([]);
 
 // --- Three.js 核心变量 ---
 let scene, camera, renderer, raycaster, mouse;
-let buildingRootGroup;
-let floorStructureMeshes = []; // 建筑主体盒子
-let floorInteriorGroups = []; // 每层内部组（内容由后端动态生成）
-let floorShellGroups = []; // 每层“幽灵墙”轮廓
-let roofMesh = null; // 屋顶
-let envGroup = null; // 环境（马路、树等）
+
+interface BuildingInstance {
+  id: number;
+  name: string;
+  width: number;
+  depth: number;
+  floors: number;
+  rootGroup: THREE.Group;
+  floorStructureMeshes: THREE.Mesh[];
+  floorInteriorGroups: THREE.Group[];
+  floorShellGroups: THREE.Group[];
+  roofMesh?: THREE.Mesh;
+  hitBox?: THREE.Mesh;
+  __layout?: Record<number, any[]>;
+}
+
+const buildings: BuildingInstance[] = [];
+let activeBuilding: BuildingInstance | null = null;
+
+let envGroup = null;
 let animationId;
 
 // 后处理
@@ -472,14 +747,139 @@ let selectedOutlineObjects = [];
 let controls;
 
 const FLOOR_LEVEL_HEIGHT = 4.0;
-const libraryWidth = 40;
+const DEFAULT_WIDTH = 40;
+const DEFAULT_DEPTH = 40;
 
-// 工具：解析 "HH:MM" 为分钟数
-const parseTimeStr = (str) => {
-  if (!str || typeof str !== 'string' || !str.includes(':')) return null;
-  const [h, m] = str.split(':').map((v) => parseInt(v, 10));
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  return h * 60 + m;
+const quickPick = (mins: number) => {
+  const s = parseTimeStr(reservationForm.start);
+  if (s == null) return;
+
+  const e = Math.min(BAR_END_MIN, s + mins);
+  if (rangeHitsOccupied(s, e)) return;
+
+  reservationForm.end = formatMin(e);
+  updateTimeTicks(s, e);
+};
+
+const confirmReservation = async () => {
+  if (!selectedSeat.value) {
+    showReservationModal.value = false;
+    return;
+  }
+
+  if (!reservationForm.date || !reservationForm.start || !reservationForm.end) {
+    alert('请先选择完整的预约时间段');
+    return;
+  }
+
+  const startM = parseTimeStr(reservationForm.start);
+  const endM = parseTimeStr(reservationForm.end);
+  const lastM = 22 * 60;
+
+  if (endM == null || endM > lastM) {
+    alert('结束时间不能晚于 22:00');
+    return;
+  }
+  if (startM != null && endM <= startM) {
+    alert('结束时间必须晚于开始时间');
+    return;
+  }
+
+  try {
+    const getCurrentUserId = () => {
+      const userId = sessionStorage.getItem('userId');
+      if (userId) {
+        return parseInt(userId);
+      }
+
+      const userInfo = sessionStorage.getItem('userInfo');
+      if (userInfo) {
+        try {
+          const user = JSON.parse(userInfo);
+          if (user.userId) {
+            return user.userId;
+          } else {
+            throw new Error('用户信息中没有找到 userId 字段');
+          }
+        } catch (e) {
+          throw new Error('解析用户信息失败: ' + e.message);
+        }
+      }
+
+      const isLoggedIn = sessionStorage.getItem('isLoggedIn');
+      if (isLoggedIn !== 'true') {
+        throw new Error('用户未登录，请先登录');
+      }
+
+      throw new Error('无法获取用户ID，请重新登录');
+    };
+
+    const userId = getCurrentUserId();
+    console.log('当前用户ID:', userId);
+
+    const reservationData = {
+      seatId: selectedSeatUI.backendSeatId,
+      userId: userId,
+      resvDate: reservationForm.date,
+      resvstartTime: reservationForm.start,
+      resvendTime: reservationForm.end
+    };
+
+    console.log('发送预约数据:', reservationData);
+
+    const response = await api.post('/reservation', reservationData);
+
+    console.log('预约响应:', response.data);
+
+    if (response.data.code === 200 || response.data.success) {
+      const seat = selectedSeat.value;
+
+      if (!seat.userData.resvSummary) {
+        seat.userData.resvSummary = [];
+      }
+
+      seat.userData.resvSummary.push({
+        start: reservationForm.start,
+        end: reservationForm.end
+      });
+
+      seat.userData.status = computeSeatStatusByFilter(seat);
+      applySeatMaterialByStatus(seat);
+
+      alert(`预约成功！\n座位: ${seat.userData.id}\n时间: ${reservationForm.date} ${reservationForm.start} - ${reservationForm.end}`);
+
+      selectedSeat.value = null;
+      showReservationModal.value = false;
+      selectedOutlineObjects = [];
+      outlinePass.selectedObjects = selectedOutlineObjects;
+
+      if (viewMode.value === 'floor') {
+        await fetchFloorLayout(currentFloor.value);
+      }
+    } else {
+      const errorMsg = response.data.msg || response.data.message || '预约失败，请重试';
+      alert(`预约失败: ${errorMsg}`);
+    }
+
+  } catch (error) {
+    console.error('预约请求失败:', error);
+
+    if (error.response) {
+      const errorMsg = error.response.data.msg || error.response.data.message || '服务器错误';
+      alert(`预约失败 (${error.response.status}): ${errorMsg}`);
+    } else if (error.request) {
+      alert('网络错误，请检查网络连接');
+    } else {
+      alert('预约失败: ' + error.message);
+    }
+  }
+};
+
+const getActiveBuildingCenter = () => {
+  const c = new THREE.Vector3();
+  if (!activeBuilding) return c;
+  activeBuilding.rootGroup.getWorldPosition(c);
+  return c;
 };
 
 // --- 材质 ---
@@ -522,6 +922,11 @@ const materials = {
     color: 0xffe9a7,
     roughness: 0.55,
     metalness: 0.08
+  }),
+  seatDisabled: new THREE.MeshStandardMaterial({
+    color: 0x9ca3af,
+    roughness: 0.6,
+    metalness: 0.05
   }),
   highlight: new THREE.MeshStandardMaterial({
     color: 0x9ec5ff,
@@ -591,6 +996,8 @@ const initScene = () => {
     0.1,
     1000
   );
+  camera.layers.enable(0);
+
   camera.position.set(55, 45, 55);
   camera.lookAt(0, 5, 0);
 
@@ -599,7 +1006,7 @@ const initScene = () => {
     antialias: true,
     alpha: true
   });
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  resizeByContainer();
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.0;
@@ -612,11 +1019,11 @@ const initScene = () => {
   controls.dampingFactor = 0.08;
   controls.enablePan = false;
   controls.minDistance = 25;
-  controls.maxDistance = 120;
+  controls.maxDistance = 300;
   controls.minPolarAngle = Math.PI / 6;
   controls.maxPolarAngle = Math.PI / 2.1;
   controls.target.set(0, 5, 0);
-  controls.enabled = false; // 初始飞入结束后再启用
+  controls.enabled = false;
   controls.update();
 
   scene.add(new THREE.AmbientLight(0xf6fbff, 0.8));
@@ -693,27 +1100,158 @@ const initScene = () => {
   }, 800);
 };
 
-// --- 建筑 + 幽灵墙（外壳仍然是静态 3 层，内部动态） ---
-const createBuilding = () => {
-  buildingRootGroup = new THREE.Group();
-  scene.add(buildingRootGroup);
+const handleSeatClick = (seat: THREE.Object3D) => {
+  const status = seat.userData?.status;
 
-  const groundGeo = new THREE.PlaneGeometry(90, 90);
+  if (status === 'disabled') {
+    alert('该座位维修中，暂不可预约');
+    return;
+  }
+  if (status === 'occupied') {
+    alert('该时间段已被占用，换个时间试试');
+    return;
+  }
+
+  selectedSeat.value = markRaw(seat);
+
+  selectedSeatUI.id = String(seat.userData?.id ?? '');
+  selectedSeatUI.status = String(seat.userData?.status ?? '');
+  selectedSeatUI.backendSeatId = seat.userData?.backendSeatId ?? null;
+  selectedSeatUI.enabled = seat.userData?.enabled !== false;
+  selectedSeatUI.resvSummary = Array.isArray(seat.userData?.resvSummary)
+    ? seat.userData.resvSummary.map(r => ({ start: r.start, end: r.end }))
+    : [];
+
+  reservationForm.date = timeFilter.date;
+  reservationForm.start = '';
+  reservationForm.end = '';
+
+  showReservationModal.value = true;
+};
+
+const createWindowsForBuilding = (building: BuildingInstance) => {
+  building.floorStructureMeshes.forEach((floorMesh, i) => {
+    const floorNum = i + 1;
+    const floorSizeX = building.width * 0.9 - i * 0.5;
+    const floorSizeZ = building.depth * 0.9 - i * 0.5;
+
+    const windowHeight = FLOOR_LEVEL_HEIGHT * 0.6;
+    const windowThickness = 0.12;
+    const windowRatio = 0.7;
+
+    const isGhostBuilding = building.rootGroup.userData.isGhost;
+    const windowMaterial = isGhostBuilding
+      ? new THREE.MeshStandardMaterial({
+        color: 0xa9bed8,
+        transparent: true,
+        opacity: 0.25,
+        roughness: 0.7,
+        metalness: 0.08
+      })
+      : materials.buildingWindow.clone();
+
+    const eps = 0.02;
+
+    const winGroup = new THREE.Group();
+    winGroup.name = `Floor_${floorNum}_Windows`;
+    winGroup.userData = { type: 'windowGroup', floorNumber: floorNum };
+
+    // 前后窗
+    const fbGeo = new THREE.BoxGeometry(
+      floorSizeX * windowRatio,
+      windowHeight,
+      windowThickness
+    );
+    const front = new THREE.Mesh(fbGeo, windowMaterial);
+    front.position.set(0, 0, floorSizeZ / 2 + windowThickness / 2 + eps);
+    front.userData = { type: 'window', side: 'front', floorNumber: floorNum };
+
+    const back = new THREE.Mesh(fbGeo, windowMaterial);
+    back.position.set(0, 0, -(floorSizeZ / 2 + windowThickness / 2 + eps));
+    back.userData = { type: 'window', side: 'back', floorNumber: floorNum };
+
+    // 左右窗
+    const lrGeo = new THREE.BoxGeometry(
+      windowThickness,
+      windowHeight,
+      floorSizeZ * windowRatio
+    );
+    const right = new THREE.Mesh(lrGeo, windowMaterial);
+    right.position.set(floorSizeX / 2 + windowThickness / 2 + eps, 0, 0);
+    right.userData = { type: 'window', side: 'right', floorNumber: floorNum };
+
+    const left = new THREE.Mesh(lrGeo, windowMaterial);
+    left.position.set(-(floorSizeX / 2 + windowThickness / 2 + eps), 0, 0);
+    left.userData = { type: 'window', side: 'left', floorNumber: floorNum };
+
+    winGroup.add(front, back, right, left);
+    floorMesh.add(winGroup);
+
+    if (isGhostBuilding) {
+      winGroup.traverse(obj => obj.layers.set(1));
+    }
+  });
+};
+
+const createBuildingInstance = (config: {
+  id: number;
+  name: string;
+  position?: { x: number; z: number };
+  floors?: number;
+  width?: number;
+  depth?: number;
+}) => {
+  const floors = config.floors ?? DEFAULT_FLOORS;
+  const width = config.width ?? DEFAULT_WIDTH;
+  const depth = config.depth ?? DEFAULT_DEPTH;
+
+  const building: BuildingInstance = {
+    id: config.id,
+    name: config.name,
+    width,
+    depth,
+    floors,
+    rootGroup: new THREE.Group(),
+    floorStructureMeshes: [],
+    floorInteriorGroups: [],
+    floorShellGroups: [],
+    roofMesh: undefined
+  };
+
+  building.rootGroup.name = `Building_${config.id}`;
+
+  if (config.position) {
+    building.rootGroup.position.set(
+      config.position.x,
+      0,
+      config.position.z
+    );
+  }
+
+  scene.add(building.rootGroup);
+  const groundW = Math.max(width, 20) + 50;
+  const groundD = Math.max(depth, 20) + 50;
+  const groundGeo = new THREE.PlaneGeometry(groundW, groundD);
   const ground = new THREE.Mesh(groundGeo, materials.ground);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   ground.position.y = -0.01;
-  buildingRootGroup.add(ground);
+  building.rootGroup.add(ground);
 
-  for (let i = 0; i < totalFloors; i++) {
+  for (let i = 0; i < floors; i++) {
     const floorY = i * FLOOR_LEVEL_HEIGHT + FLOOR_LEVEL_HEIGHT / 2;
-    const floorSizeXY = libraryWidth * 0.9 - i * 0.5;
+    const baseFloorSizeX = width * 0.9 - i * 0.5;
+    const baseFloorSizeZ = depth * 0.9 - i * 0.5;
+
+    const shellSizeX = baseFloorSizeX + SHELL_PADDING_X * 2;
+    const shellSizeZ = baseFloorSizeZ + SHELL_PADDING_Z * 2;
 
     const wallGeo = new THREE.BoxGeometry(
-      floorSizeXY,
+      baseFloorSizeX,
       FLOOR_LEVEL_HEIGHT,
-      floorSizeXY
+      baseFloorSizeZ
     );
+
     const floorMesh = new THREE.Mesh(wallGeo, materials.buildingWall.clone());
     floorMesh.position.y = floorY;
     floorMesh.castShadow = true;
@@ -721,186 +1259,237 @@ const createBuilding = () => {
     floorMesh.userData = {
       type: 'floor',
       floorNumber: i + 1,
-      name: `图书馆${i + 1}层`
+      name: `图书馆${i + 1}层`,
+      originalY: floorY
     };
-    buildingRootGroup.add(floorMesh);
-    floorStructureMeshes.push(floorMesh);
-
-    const windowPaneGeo = new THREE.BoxGeometry(
-      floorSizeXY * 0.7,
-      FLOOR_LEVEL_HEIGHT * 0.6,
-      0.1
-    );
-    const window1 = new THREE.Mesh(windowPaneGeo, materials.buildingWindow);
-    window1.position.set(0, floorY, floorSizeXY / 2 + 0.05);
-    const window2 = window1.clone();
-    window2.position.z *= -1;
-    const window3 = new THREE.Mesh(
-      new THREE.BoxGeometry(
-        0.1,
-        FLOOR_LEVEL_HEIGHT * 0.6,
-        floorSizeXY * 0.7
-      ),
-      materials.buildingWindow
-    );
-    window3.position.set(floorSizeXY / 2 + 0.05, floorY, 0);
-    const window4 = window3.clone();
-    window4.position.x *= -1;
-
-    buildingRootGroup.add(window1, window2, window3, window4);
+    floorMesh.userData.originalY = floorY;
+    building.rootGroup.add(floorMesh);
+    building.floorStructureMeshes.push(floorMesh);
 
     // 幽灵墙
     const shellGroup = new THREE.Group();
     shellGroup.name = `Floor_${i + 1}_Shell`;
     shellGroup.visible = false;
-    const ghostMatBase = materials.ghostWall;
+    shellGroup.position.y = floorY;
 
+    const ghostMatBase = materials.ghostWall;
+    const THICK = 0.15;
+    const EPS = 0.02;
+
+    // 前
     const frontWall = new THREE.Mesh(
-      new THREE.PlaneGeometry(floorSizeXY, FLOOR_LEVEL_HEIGHT),
+      new THREE.BoxGeometry(shellSizeX, FLOOR_LEVEL_HEIGHT, THICK),
       ghostMatBase.clone()
     );
-    frontWall.position.set(0, floorY, floorSizeXY / 2 + 0.01);
-    frontWall.userData = { type: 'ghostWall', side: 'front' };
+    frontWall.position.set(0, 0, shellSizeZ / 2 + THICK / 2 + EPS);
     shellGroup.add(frontWall);
 
+    // 后
     const backWall = new THREE.Mesh(
-      new THREE.PlaneGeometry(floorSizeXY, FLOOR_LEVEL_HEIGHT),
+      new THREE.BoxGeometry(shellSizeX, FLOOR_LEVEL_HEIGHT, THICK),
       ghostMatBase.clone()
     );
-    backWall.position.set(0, floorY, -floorSizeXY / 2 - 0.01);
-    backWall.rotation.y = Math.PI;
-    backWall.userData = { type: 'ghostWall', side: 'back' };
+    backWall.position.set(0, 0, -shellSizeZ / 2 - THICK / 2 - EPS);
     shellGroup.add(backWall);
 
+    // 右
     const rightWall = new THREE.Mesh(
-      new THREE.PlaneGeometry(floorSizeXY, FLOOR_LEVEL_HEIGHT),
+      new THREE.BoxGeometry(THICK, FLOOR_LEVEL_HEIGHT, shellSizeZ),
       ghostMatBase.clone()
     );
-    rightWall.position.set(floorSizeXY / 2 + 0.01, floorY, 0);
-    rightWall.rotation.y = -Math.PI / 2;
-    rightWall.userData = { type: 'ghostWall', side: 'right' };
-    rightWall.material.opacity = 0.06; // 右侧更虚
+    rightWall.position.set(shellSizeX / 2 + THICK / 2 + EPS, 0, 0);
+    rightWall.material.opacity = 0.06;
     shellGroup.add(rightWall);
 
+    // 左
     const leftWall = new THREE.Mesh(
-      new THREE.PlaneGeometry(floorSizeXY, FLOOR_LEVEL_HEIGHT),
+      new THREE.BoxGeometry(THICK, FLOOR_LEVEL_HEIGHT, shellSizeZ),
       ghostMatBase.clone()
     );
-    leftWall.position.set(-floorSizeXY / 2 - 0.01, floorY, 0);
-    leftWall.rotation.y = Math.PI / 2;
-    leftWall.userData = { type: 'ghostWall', side: 'left' };
+    leftWall.position.set(-shellSizeX / 2 - THICK / 2 - EPS, 0, 0);
     shellGroup.add(leftWall);
 
-    scene.add(shellGroup);
-    floorShellGroups.push(shellGroup);
+    building.rootGroup.add(shellGroup);
+    building.floorShellGroups.push(shellGroup);
   }
 
-  const roofBaseSize = libraryWidth * 0.9 - (totalFloors - 1) * 0.5;
-  const roofGeo = new THREE.BoxGeometry(roofBaseSize + 0.3, 0.4, roofBaseSize + 0.3);
+  const roofBaseSizeXY = width * 0.9 - (floors - 1) * 0.5;
+  const roofBaseSizeZ = depth * 0.9 - (floors - 1) * 0.5;
+  const roofGeo = new THREE.BoxGeometry(roofBaseSizeXY + 0.3, 0.4, roofBaseSizeZ + 0.3);
   const roofMat = new THREE.MeshStandardMaterial({
     color: 0x60748e,
     roughness: 0.6,
     metalness: 0.1
   });
-  roofMesh = new THREE.Mesh(roofGeo, roofMat);
-  roofMesh.position.y = totalFloors * FLOOR_LEVEL_HEIGHT + 0.2;
-  roofMesh.castShadow = true;
-  roofMesh.receiveShadow = true;
-  buildingRootGroup.add(roofMesh);
+  building.roofMesh = new THREE.Mesh(roofGeo, roofMat);
+  building.roofMesh.position.y = floors * FLOOR_LEVEL_HEIGHT + 0.2;
+  building.roofMesh.castShadow = true;
+  building.roofMesh.receiveShadow = true;
+  building.rootGroup.add(building.roofMesh);
+
+  // 建筑点击代理
+  const hitBoxHeight = floors * FLOOR_LEVEL_HEIGHT + 1;
+  const hitBoxGeo = new THREE.BoxGeometry(
+    width * 0.95,
+    hitBoxHeight,
+    depth * 0.95
+  );
+
+  const hitBoxMat = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    transparent: true,
+    opacity: 0.0,
+    depthWrite: false
+  });
+
+  const hitBox = new THREE.Mesh(hitBoxGeo, hitBoxMat);
+  hitBox.position.y = hitBoxHeight / 2;
+  hitBox.userData = {
+    type: 'building',
+    buildingId: building.id
+  };
+
+  building.rootGroup.add(hitBox);
+  building.hitBox = hitBox;
+
+  createWindowsForBuilding(building);
+
+  return building;
 };
 
-// --- 环境 ---
+const createBuildingFromBackend = (b: BackendBuilding) => {
+  const cfg = mapBackendBuildingToConfig(b);
+
+  if (buildings.some(x => x.id === cfg.id)) return;
+
+  const building = createBuildingInstance(cfg);
+  createEmptyFloorGroups(building);
+
+  buildings.push(building);
+  building.rootGroup.visible = (viewMode.value === 'campus');
+};
+
 const createEnvironment = () => {
   envGroup = new THREE.Group();
   envGroup.name = 'Environment';
   scene.add(envGroup);
 
-  // 只创建简单的地面，不创建街道和树木
   const groundGeo = new THREE.PlaneGeometry(90, 90);
   const ground = new THREE.Mesh(groundGeo, materials.ground);
   ground.rotation.x = -Math.PI / 2;
   ground.receiveShadow = true;
   ground.position.y = -0.01;
   envGroup.add(ground);
-
-
 };
 
+const loadBuildingsFromBackend = async () => {
+  const res = await api.get<ResponseMessage<BackendBuilding[]>>('/building/all');
+  console.log('raw res.data =', res.data);
+  if (res.data.code !== 200) {
+    console.warn('fetch buildings failed:', res.data.message);
+    return;
+  }
 
+  buildings.forEach(b => scene.remove(b.rootGroup));
+  buildings.length = 0;
 
-// --- 每层创建一个空的内部 group，内容全部由后端填充 ---
-const createEmptyFloorGroups = () => {
-  for (let i = 1; i <= totalFloors; i++) {
+  res.data.data.forEach((b) => {
+    const cfg = mapBackendBuildingToConfig(b);
+    const inst = createBuildingInstance(cfg);
+    createEmptyFloorGroups(inst);
+    buildings.push(inst);
+
+    inst.rootGroup.visible = (viewMode.value === 'campus');
+  });
+};
+
+const createEmptyFloorGroups = (building: BuildingInstance) => {
+  for (let i = 1; i <= building.floors; i++) {
     const floorGroup = new THREE.Group();
-    floorGroup.name = `Floor_${i}_Interior`;
+    floorGroup.name = `Building_${building.id}_Floor_${i}_Interior`;
     floorGroup.position.y = (i - 1) * FLOOR_LEVEL_HEIGHT;
     floorGroup.visible = false;
-    floorInteriorGroups.push(floorGroup);
-    scene.add(floorGroup);
+
+    building.floorInteriorGroups.push(floorGroup);
+    building.rootGroup.add(floorGroup);
   }
 };
 
+// 修复后的座位状态计算函数
+// --- 根据当前时间筛选计算座位状态（使用后端的 resvSummary）---
 // --- 根据当前时间筛选计算座位状态（使用后端的 resvSummary） ---
 const computeSeatStatusByFilter = (seat) => {
-  const list = seat.userData.resvSummary;
+  // 维修中：永远灰
+  if (seat?.userData?.enabled === false) return 'disabled';
+
+  const list = seat?.userData?.resvSummary;
   if (!list || list.length === 0) return 'free';
 
   const filterStart = parseTimeStr(timeFilter.start);
   const filterEnd = parseTimeStr(timeFilter.end);
   if (filterStart == null || filterEnd == null) return 'free';
 
-  let occupied = false;
-  let partial = false;
+  // 1. 将所有预约记录转换为分钟区间并排序
+  const intervals = list
+    .map(r => {
+      const resStart = parseTimeStr(r.start);
+      const resEnd = parseTimeStr(r.end);
+      if (resStart == null || resEnd == null) return null;
+      return { start: resStart, end: resEnd };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.start - b.start); // 按开始时间排序
 
-  for (const r of list) {
-    const resStart = parseTimeStr(r.start);
-    const resEnd = parseTimeStr(r.end);
-    if (resStart == null || resEnd == null) continue;
+  if (intervals.length === 0) return 'free';
 
-    // 完全不重叠
-    if (resEnd <= filterStart || resStart >= filterEnd) continue;
+  // 2. 检查筛选时间段是否被完全覆盖（单个或多个记录拼接）
+  let coveredStart = filterStart;
 
-    // 完全覆盖
-    if (resStart <= filterStart && resEnd >= filterEnd) {
-      occupied = true;
-      break;
+  // 按开始时间顺序遍历，寻找连续覆盖
+  for (const interval of intervals) {
+    // 如果这个区间覆盖了当前未覆盖的起始点
+    if (interval.start <= coveredStart && interval.end > coveredStart) {
+      coveredStart = interval.end;
+
+      // 如果已经完全覆盖了筛选时间段
+      if (coveredStart >= filterEnd) {
+        return 'occupied';
+      }
     }
-
-    // 有部分重叠
-    partial = true;
   }
 
-  if (occupied) return 'occupied';
-  if (partial) return 'partial';
+  // 3. 检查是否有任何重叠
+  for (const interval of intervals) {
+    if (interval.start < filterEnd && interval.end > filterStart) {
+      return 'partial';
+    }
+  }
+
   return 'free';
 };
 
-
-// 根据状态切换座位材质
 const applySeatMaterialByStatus = (seat) => {
-  const status = seat.userData.status;
-  let mat;
-  if (status === 'free') mat = materials.seatFree;
-  else if (status === 'partial') mat = materials.seatPartial;
+  const status = seat?.userData?.status;
+
+  let mat: THREE.MeshStandardMaterial;
+
+  if (status === 'disabled') mat = materials.seatDisabled;
   else if (status === 'occupied') mat = materials.seatOccupied;
-  else if (status === 'selected') mat = materials.selected;
+  else if (status === 'partial') mat = materials.seatPartial;
   else mat = materials.seatFree;
 
   seat.traverse((child) => {
-    if (child.isMesh) {
-      // 跳过桌子，只改椅子：用父级 subtype 区分
-      const parent = child.parent;
-      if (parent && parent.userData && parent.userData.subtype === 'table') {
-        return;
-      }
-      child.material = mat.clone();
-    }
+    if (!child.isMesh) return;
+
+    if (child.parent?.userData?.subtype === 'table') return;
+
+    child.material = mat.clone();
   });
 };
 
-// 对当前楼层所有座位应用筛选规则
 const applyTimeFilterToCurrentFloorSeats = () => {
-  const group = floorInteriorGroups[currentFloor.value - 1];
+  if (showReservationModal.value) return;
+  const group = activeBuilding?.floorInteriorGroups[currentFloor.value - 1];
   if (!group) return;
 
   group.traverse((obj) => {
@@ -913,22 +1502,17 @@ const applyTimeFilterToCurrentFloorSeats = () => {
   });
 };
 
-// --- 构建房间与座位：完全根据后端 RoomDisplayDTO ---
-// 根据 RoomDisplayDTO 构建房间 + 里面所有座位
 const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
   console.log('buildRoomFromDTO:', roomDTO);
 
   const roomGroup = new THREE.Group();
 
-  // ✅ 房间世界坐标：用后端的 position.x / position.z
-  //   y 高度由整个楼层 group 决定，这里只加一点点偏移防止 z-fighting
   if (roomDTO.position) {
     roomGroup.position.set(roomDTO.position.x, 0.1, roomDTO.position.z);
   } else {
     roomGroup.position.set(0, 0.1, 0);
   }
 
-  // ✅ 房间平面：size.width / size.depth
   const width = roomDTO.size?.width ?? 10;
   const depth = roomDTO.size?.depth ?? 10;
 
@@ -945,27 +1529,22 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
   };
   roomGroup.add(roomFloor);
 
-  // ✅ 座位：seats 可能为空，这里用 (roomDTO.seats || [])
   (roomDTO.seats || []).forEach((seatDTO) => {
     const unitGroup = new THREE.Group();
     unitGroup.userData = {
       type: 'seat',
-      // 展示用编号：roomId-S{number}
-      id: `${roomDTO.id}-S${seatDTO.number}`,
+      id: `S${seatDTO.number}`,
       number: seatDTO.number,
       floor: floorNum,
-
       backendSeatId: seatDTO.id,
-      resvSummary: seatDTO.resvSummary || [], // [{ start, end }]
-      status: 'free',
-      reservation: null // 前端临时预约
+      resvSummary: seatDTO.resvSummary || [],
+      enabled: seatDTO.enabled ?? true,
+      reservation: null
     };
 
-    // ✅ 注意：你的 JSON 里 seat 用的是 x / y，
-    //    原来的静态数据是 x / z，所以我们这里把你给的 y 当作 z 用
     unitGroup.position.set(seatDTO.x || 0, 0, seatDTO.y || 0);
 
-    // --- 椅子（chairGroup） ---
+    // 椅子
     const chairGroup = new THREE.Group();
     chairGroup.userData = { subtype: 'chair' };
 
@@ -998,7 +1577,6 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
         c.material.transparent = true;
         const originOpacity = c.material.opacity;
         c.material.opacity = 0;
-        // 入场淡入一下，顺便证明“确实创建了”
         gsap.to(c.material, {
           opacity: originOpacity,
           duration: 0.5,
@@ -1009,7 +1587,7 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
 
     unitGroup.add(chairGroup);
 
-    // --- 桌子 ---
+    // 桌子
     const tableGeo = new THREE.BoxGeometry(1.2, 0.7, 0.8);
     const table = new THREE.Mesh(tableGeo, materials.desk.clone());
     table.position.set(0, 0.35, 1.0);
@@ -1018,14 +1596,13 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
     table.userData = { subtype: 'table' };
     unitGroup.add(table);
 
-    // 初始根据当前 timeFilter 计算状态
     unitGroup.userData.status = computeSeatStatusByFilter(unitGroup);
     applySeatMaterialByStatus(unitGroup);
 
     roomGroup.add(unitGroup);
   });
 
-  // ✅ 学习房：书架
+  // 学习房：书架
   if (roomDTO.type === 'study') {
     const shelfHeight = 2.5;
     const shelfWidth = 0.5;
@@ -1071,7 +1648,7 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
     roomGroup.add(rightFrontShelf);
   }
 
-  // ✅ 接待前台房间
+  // 接待前台房间
   if (roomDTO.type === 'info') {
     const roomW = width;
     const roomD = depth;
@@ -1085,55 +1662,51 @@ const buildRoomFromDTO = (parentGroup, roomDTO, floorNum) => {
     counter.receiveShadow = true;
     counter.userData = { type: 'infoCounter' };
     roomGroup.add(counter);
-    // （这里下面屏幕、牌子、柱子你原来的那段也可以照搬）
   }
 
   parentGroup.add(roomGroup);
 };
+
 const api = axios.create({
-  baseURL: 'http://localhost:8080',  // <<< 改成你 Spring Boot 实际地址和端口
-  // withCredentials: true, // 如果有 cookie 之类的再开
+  baseURL: 'http://localhost:8080',
 });
-// 然后在 fetchFloorLayout 里用这个实例：
-const fetchFloorLayout = async (floorNum) => {
-  const group = floorInteriorGroups[floorNum - 1];
-  if (!group) return;
 
-  const res = await api.get(`/building/${floorNum}`, {
-    params: {
-      date: timeFilter.date,
-      start: timeFilter.start,
-      end: timeFilter.end
-    }
-  });
-
-  const payload = res.data || {};
-  const rooms = payload.data || [];
-
-  console.log('楼层', floorNum, 'payload =', payload);
-  console.log('rooms =', rooms);
+const fetchFloorLayout = async (floorNum: number) => {
+  const group = activeBuilding?.floorInteriorGroups[floorNum - 1];
+  if (!group || !activeBuilding) return;
 
   group.clear();
   group.visible = true;
 
-  rooms.forEach(roomDTO => buildRoomFromDTO(group, roomDTO, floorNum));
+  try {
+    const res = await api.get<FloorLayoutResp>(
+      `/building/${activeBuilding.id}/floor/${floorNum}/user`, {
+        params: {
+          date: timeFilter.date,
+          start: timeFilter.start,
+          end: timeFilter.end
+        }
+      });
 
+    const rooms: RoomDTO[] = Array.isArray(res.data)
+      ? res.data
+      : (res.data.data ?? []);
 
-  // 这一句先关掉，等座位正常再开
-  // if (viewMode.value === 'floor' && currentFloor.value === floorNum) {
-  //   applyTimeFilterToCurrentFloorSeats();
-  // }
+    console.log('rooms from backend =', rooms);
+
+    rooms.forEach(roomDTO => buildRoomFromDTO(group, roomDTO, floorNum));
+  } catch (e) {
+    console.error('fetchFloorLayout error:', e);
+  }
 };
 
-
-
-// --- 楼层视图：显示座位 + 处理书架透明度 + 幽灵墙 ---
 const showFloorInterior = (floorNum) => {
-  floorInteriorGroups.forEach((group, index) => {
+  if (!activeBuilding) return;
+
+  activeBuilding?.floorInteriorGroups.forEach((group, index) => {
     const isTarget = index + 1 === floorNum;
     group.visible = isTarget;
     if (isTarget) {
-      // 书架透明度
       group.traverse((child) => {
         if (child.userData && child.userData.type === 'bookshelf') {
           const mat = child.material;
@@ -1151,12 +1724,11 @@ const showFloorInterior = (floorNum) => {
     }
   });
 
-  floorShellGroups.forEach((shell, index) => {
+  activeBuilding?.floorShellGroups.forEach((shell, index) => {
     shell.visible = index + 1 === floorNum;
   });
 };
 
-// --- 高亮/恢复 ---
 let lastHovered = null;
 
 const setHighlightMaterial = (object, material) => {
@@ -1173,6 +1745,7 @@ const setHighlightMaterial = (object, material) => {
 const restoreOriginalMaterial = (object) => {
   if (object.userData && object.userData.type === 'seat') {
     applySeatMaterialByStatus(object);
+
     object.traverse((child) => {
       if (
         child.isMesh &&
@@ -1195,25 +1768,52 @@ const restoreOriginalMaterial = (object) => {
   });
 };
 
-// --- 交互：鼠标移动 ---
-const onMouseMove = (event) => {
-  if (loading.value) return;
+const resizeByContainer = () => {
+  if (!canvasContainer.value || !renderer || !camera) return;
 
-  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  const { width, height } =
+    canvasContainer.value.getBoundingClientRect();
+
+  camera.aspect = width / height;
+  camera.updateProjectionMatrix();
+
+  renderer.setSize(width, height, false);
+
+  if (composer) composer.setSize(width, height);
+  if (outlinePass) outlinePass.setSize(width, height);
+  if (smaaPass) {
+    smaaPass.setSize(
+      width * renderer.getPixelRatio(),
+      height * renderer.getPixelRatio()
+    );
+  }
+};
+
+// --- 交互：鼠标移动 ---
+const onMouseMove = (event: MouseEvent) => {
+  if (loading.value || isModalOpen.value) return;
+  if (!canvasRef.value) return;
+
+  updateMouseByCanvas(event);
   raycaster.setFromCamera(mouse, camera);
 
   let intersects = [];
   let selectableObjects = [];
-
-  if (viewMode.value === 'building') {
-    selectableObjects = floorStructureMeshes;
+  if (viewMode.value === 'campus') {
+    selectableObjects = buildings
+      .map(b => b.hitBox)
+      .filter(Boolean);
+  }
+  else if (viewMode.value === 'building') {
+    selectableObjects = activeBuilding?.floorStructureMeshes|| [];
   } else if (viewMode.value === 'floor') {
-    const currentFloorDetails = floorInteriorGroups[currentFloor.value - 1];
+    const currentFloorDetails = activeBuilding?.floorInteriorGroups[currentFloor.value - 1];
     if (currentFloorDetails) {
       currentFloorDetails.traverse((child) => {
         if (
-          (child.isMesh && child.parent && child.parent.userData.type === 'seat') ||
+          (child.isMesh &&
+            child.parent &&
+            child.parent.userData.type === 'seat') ||
           (child.isGroup && child.userData.type === 'seat') ||
           (child.isMesh && child.userData.type === 'room')
         ) {
@@ -1230,7 +1830,7 @@ const onMouseMove = (event) => {
     let interactiveObject = object;
     while (
       interactiveObject &&
-      !['seat', 'floor', 'room'].includes(interactiveObject.userData.type) &&
+      !['seat', 'floor', 'room', 'building'].includes(interactiveObject.userData.type) &&
       interactiveObject.parent
       ) {
       interactiveObject = interactiveObject.parent;
@@ -1276,13 +1876,14 @@ const onMouseMove = (event) => {
     } else if (interactiveObject.userData.type === 'room') {
       hoverInfo.value = interactiveObject.userData.name;
     } else if (interactiveObject.userData.type === 'seat') {
-      let statusText = '空闲';
-      if (interactiveObject.userData.status === 'partial') statusText = '半空闲';
-      else if (interactiveObject.userData.status === 'occupied') statusText = '占用';
-      else if (interactiveObject.userData.status === 'selected')
-        statusText = '已选中';
-
-      hoverInfo.value = `${interactiveObject.userData.id}（${statusText}）`;
+      if (interactiveObject.userData.enabled) {
+        hoverInfo.value = `${interactiveObject.userData.id}（正常）`;
+      } else {
+        hoverInfo.value = `${interactiveObject.userData.id}（维修中）`;
+      }
+    }else if (interactiveObject.userData.type === 'building') {
+      const b = buildings.find(x => x.id === interactiveObject.userData.buildingId);
+      hoverInfo.value = b ? `进入：${b.name}` : '进入建筑';
     }
 
     tooltipStyle.left = event.clientX + 15 + 'px';
@@ -1306,80 +1907,110 @@ const onMouseMove = (event) => {
   }
 };
 
-// --- 点击 ---
-const onMouseClick = (event) => {
-  if (loading.value) return;
+const updateMouseByCanvas = (event: MouseEvent) => {
+  const canvas = canvasRef.value as HTMLCanvasElement | null;
+  if (!canvas) return;
 
-  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  const rect = canvas.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+};
+
+// --- 点击 ---
+const onMouseClick = (event: MouseEvent) => {
+  if (loading.value || isModalOpen.value) return;
+  if (!canvasRef.value) return;
+
+  const rect = canvasRef.value.getBoundingClientRect();
+  mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+  mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
   raycaster.setFromCamera(mouse, camera);
 
-  let intersects = [];
-  if (viewMode.value === 'building') {
-    intersects = raycaster.intersectObjects(floorStructureMeshes);
-  } else if (viewMode.value === 'floor') {
-    const currentFloorDetails = floorInteriorGroups[currentFloor.value - 1];
-    if (currentFloorDetails) {
-      intersects = raycaster.intersectObjects(currentFloorDetails.children, true);
-    }
+  let intersects: THREE.Intersection[] = [];
+
+  if (viewMode.value === 'campus') {
+    const objs = buildings.map(b => b.hitBox).filter(Boolean) as THREE.Object3D[];
+    intersects = raycaster.intersectObjects(objs, true);
+  }
+  else if (viewMode.value === 'building') {
+    intersects = raycaster.intersectObjects(activeBuilding?.floorStructureMeshes || [], true);
+  }
+  else if (viewMode.value === 'floor') {
+    const currentFloorGroup = activeBuilding?.floorInteriorGroups[currentFloor.value - 1];
+    if (!currentFloorGroup) return;
+
+    const seatObjects: THREE.Object3D[] = [];
+    currentFloorGroup.traverse(obj => {
+      if (obj.userData?.type === 'seat') seatObjects.push(obj);
+    });
+
+    intersects = raycaster.intersectObjects(seatObjects, true);
   }
 
-  if (intersects.length > 0) {
-    const object = intersects[0].object;
-    let interactiveObject = object;
-    while (
-      interactiveObject &&
-      !['seat', 'floor', 'room'].includes(interactiveObject.userData.type) &&
-      interactiveObject.parent
-      ) {
-      interactiveObject = interactiveObject.parent;
-    }
+  if (intersects.length === 0) return;
 
-    if (
-      interactiveObject &&
-      interactiveObject.userData.type === 'floor' &&
-      viewMode.value === 'building'
+  let target: THREE.Object3D | null = intersects[0].object;
+  while (
+    target &&
+    !['seat', 'floor', 'building'].includes(target.userData?.type) &&
+    target.parent
     ) {
-      enterFloorView(interactiveObject.userData.floorNumber);
-    } else if (
-      interactiveObject &&
-      interactiveObject.userData.type === 'seat' &&
-      viewMode.value === 'floor'
-    ) {
-      handleSeatClick(interactiveObject);
-    }
+    target = target.parent;
+  }
+  if (!target) return;
+
+  if (viewMode.value === 'campus' && target.userData?.type === 'building') {
+    const building = buildings.find(b => b.id === target.userData.buildingId);
+    if (building) enterBuildingView(building);
+    return;
+  }
+
+  if (viewMode.value === 'building' && target.userData?.type === 'floor') {
+    enterFloorView(target.userData.floorNumber);
+    return;
+  }
+
+  if (viewMode.value === 'floor' && target.userData?.type === 'seat') {
+    handleSeatClick(target);
   }
 };
 
 // --- 进入楼层视图 ---
 const enterFloorView = (floorNum) => {
   viewMode.value = 'floor';
+  if (activeBuilding) totalFloors.value = activeBuilding.floors;
   currentFloor.value = floorNum;
   freezeTooltip.value = true;
   selectedOutlineObjects = [];
   outlinePass.selectedObjects = selectedOutlineObjects;
 
-  if (roofMesh) roofMesh.visible = false;
+  if (activeBuilding && activeBuilding.roofMesh) {
+    activeBuilding.roofMesh.visible = false;
+  }
   if (envGroup) envGroup.visible = false;
 
+  const center = getActiveBuildingCenter();
+
   const targetFloorYBase = (floorNum - 1) * FLOOR_LEVEL_HEIGHT;
+  const offset = Math.max(activeBuilding?.width ?? DEFAULT_WIDTH, activeBuilding?.depth ?? DEFAULT_DEPTH) * 0.7;
+
   const targetCameraPos = new THREE.Vector3(
-    libraryWidth * 0.7,
+    center.x + offset,
     targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
-    libraryWidth * 0.7
+    center.z + offset
   );
   const targetLookAt = new THREE.Vector3(
-    0,
+    center.x,
     targetFloorYBase + FLOOR_LEVEL_HEIGHT / 2,
-    0
+    center.z
   );
 
-  floorStructureMeshes.forEach((mesh) => {
+  activeBuilding?.floorStructureMeshes.forEach((mesh) => {
     if (mesh.userData.floorNumber === floorNum) {
       gsap.to(mesh.material, { opacity: 0.1, duration: 1.5 });
     } else {
       gsap.to(mesh.position, {
-        y: mesh.position.y + 50,
+        y: mesh.userData.originalY + 50,
         duration: 1.5,
         ease: 'power2.inOut'
       });
@@ -1392,12 +2023,12 @@ const enterFloorView = (floorNum) => {
   const tl = gsap.timeline({
     defaults: { duration: 1.8, ease: 'power2.inOut' },
     onComplete: async () => {
-      floorStructureMeshes.forEach((m) => {
+      activeBuilding?.floorStructureMeshes.forEach((m) => {
         m.visible = false;
       });
 
-      await fetchFloorLayout(floorNum); // 先根据后端构建布局
-      showFloorInterior(floorNum); // 再控制可见性 & 书架透明
+      await fetchFloorLayout(floorNum);
+      showFloorInterior(floorNum);
       freezeTooltip.value = false;
 
       if (controls) {
@@ -1428,26 +2059,33 @@ const selectFloor = (floorNum) => {
   selectedOutlineObjects = [];
   outlinePass.selectedObjects = selectedOutlineObjects;
 
-  const prevFloorGroup = floorInteriorGroups[currentFloor.value - 1];
+  const prevFloorGroup = activeBuilding?.floorInteriorGroups[currentFloor.value - 1];
   if (prevFloorGroup) {
     prevFloorGroup.visible = false;
   }
 
-  if (roofMesh) roofMesh.visible = false;
+  if (activeBuilding && activeBuilding.roofMesh) {
+    activeBuilding.roofMesh.visible = false;
+  }
   if (envGroup) envGroup.visible = false;
 
   currentFloor.value = floorNum;
 
+  const center = getActiveBuildingCenter();
+
   const targetFloorYBase = (floorNum - 1) * FLOOR_LEVEL_HEIGHT;
+  const offset = Math.max(activeBuilding?.width ?? DEFAULT_WIDTH, activeBuilding?.depth ?? DEFAULT_DEPTH) * 0.7;
+
   const targetCameraPos = new THREE.Vector3(
-    libraryWidth * 0.7,
+    center.x + offset * 0.7,
     targetFloorYBase + FLOOR_LEVEL_HEIGHT * 1.8,
-    libraryWidth * 0.7
+    center.z + offset * 0.7
   );
+
   const targetLookAt = new THREE.Vector3(
-    0,
+    center.x,
     targetFloorYBase + FLOOR_LEVEL_HEIGHT / 2,
-    0
+    center.z
   );
 
   if (controls) controls.enabled = false;
@@ -1479,268 +2117,153 @@ const selectFloor = (floorNum) => {
   );
 };
 
+const syncCampusVisibility = () => {
+  buildings.forEach(b => {
+    b.rootGroup.visible = viewMode.value === 'campus';
+  });
+};
+
 // --- 返回建筑视图 ---
 const resetView = () => {
-  viewMode.value = 'building';
-  currentFloor.value = 0;
+  viewMode.value = 'campus';
+  currentFloor.value = 1;
+  totalFloors.value = 0;
+  activeBuilding = null;
+
   freezeTooltip.value = true;
+
   selectedOutlineObjects = [];
-  outlinePass.selectedObjects = selectedOutlineObjects;
+  outlinePass.selectedObjects = [];
 
-  floorInteriorGroups.forEach((group) => {
-    group.visible = false;
-  });
-  floorShellGroups.forEach((shell) => {
-    shell.visible = false;
-  });
+  buildings.forEach((b) => {
+    b.rootGroup.visible = true;
 
-  floorStructureMeshes.forEach((mesh) => {
-    mesh.visible = true;
+    b.floorInteriorGroups.forEach((group) => (group.visible = false));
+    b.floorShellGroups.forEach((shell) => (shell.visible = false));
 
-    gsap.to(mesh.position, {
-      y:
-        (mesh.userData.floorNumber - 1) * FLOOR_LEVEL_HEIGHT +
-        FLOOR_LEVEL_HEIGHT / 2,
-      duration: 1.2,
-      ease: 'power1.out',
-      delay: 0.4
+    b.floorStructureMeshes.forEach((mesh) => {
+      mesh.visible = true;
+
+      if (mesh.userData.originalY !== undefined) {
+        mesh.position.y = mesh.userData.originalY;
+      }
+
+      gsap.to(mesh.material, { opacity: 0.95, duration: 1.0 });
     });
 
-    gsap.to(mesh.material, { opacity: 0.95, duration: 1.2, delay: 0.4 });
+    if (b.roofMesh) b.roofMesh.visible = true;
   });
 
-  if (roofMesh) roofMesh.visible = true;
   if (envGroup) envGroup.visible = true;
 
-  if (controls) controls.enabled = false;
+  freezeTooltip.value = true;
 
-  const tl = gsap.timeline({
-    defaults: { duration: 1.5, ease: 'power1.inOut' },
-    onComplete: () => {
-      freezeTooltip.value = false;
-      if (controls) {
-        controls.target.set(0, 5, 0);
-        controls.enabled = true;
-        controls.update();
-      }
-    }
-  });
+  flyCameraToCampus();
 
-  tl.to(
-    camera.position,
-    {
-      x: 55,
-      y: 45,
-      z: 55,
-      onUpdate: () => camera.lookAt(0, 5, 0)
+  setTimeout(() => {
+    freezeTooltip.value = false;
+  }, 800);
+};
+
+const flyCameraToBuilding = (
+  building: BuildingInstance,
+  options?: {
+    distance?: number;
+    height?: number;
+    duration?: number;
+  }
+) => {
+  if (!controls) return;
+
+  const distance = options?.distance ?? 55;
+  const height = options?.height ?? 45;
+  const duration = options?.duration ?? 1.8;
+
+  const center = new THREE.Vector3();
+  building.rootGroup.getWorldPosition(center);
+
+  const targetCameraPos = new THREE.Vector3(
+    center.x + distance,
+    center.y + height,
+    center.z + distance
+  );
+
+  const targetLookAt = new THREE.Vector3(
+    center.x,
+    center.y + 5,
+    center.z
+  );
+
+  const startPos = camera.position.clone();
+  const startTarget = controls.target.clone();
+
+  controls.enabled = false;
+
+  const progress = { t: 0 };
+
+  gsap.to(progress, {
+    t: 1,
+    duration,
+    ease: 'power3.inOut',
+    onUpdate: () => {
+      camera.position.lerpVectors(startPos, targetCameraPos, progress.t);
+      controls.target.lerpVectors(startTarget, targetLookAt, progress.t);
+      controls.update();
     },
-    0
-  );
+    onComplete: () => {
+      camera.position.copy(targetCameraPos);
+      controls.target.copy(targetLookAt);
+      controls.enabled = true;
+      controls.update();
+    }
+  });
 };
 
-// --- 座位点击：暂时仍使用你原来的本地预约逻辑 ---
-// --- 座位点击：暂时仍使用你原来的本地预约逻辑 ---
-const handleSeatClick = (seat) => {
-  const res = seat.userData.reservation;
+const flyCameraToCampus = () => {
+  if (!controls) return;
 
-  if (res && res.date === timeFilter.date) {
-    alert(
-      `该座位当前已有预约：\n` +
-      `开始时间：${res.start}\n` +
-      `结束时间：${res.end}`
-    );
-    return;
-  }
+  const targetCameraPos = new THREE.Vector3(90, 70, 90);
+  const targetLookAt = new THREE.Vector3(0, 5, 0);
 
-  floorInteriorGroups.forEach((group) => {
-    group.traverse((child) => {
-      if (
-        child.userData &&
-        child.userData.type === 'seat' &&
-        child.userData.status === 'selected'
-      ) {
-        child.userData.status = computeSeatStatusByFilter(child);
-        applySeatMaterialByStatus(child);
-      }
-    });
+  const startPos = camera.position.clone();
+  const startTarget = controls.target.clone();
+
+  controls.enabled = false;
+
+  const progress = { t: 0 };
+
+  gsap.to(progress, {
+    t: 1,
+    duration: 1.8,
+    ease: 'power3.inOut',
+    onUpdate: () => {
+      camera.position.lerpVectors(startPos, targetCameraPos, progress.t);
+      controls.target.lerpVectors(startTarget, targetLookAt, progress.t);
+      controls.update();
+    },
+    onComplete: () => {
+      camera.position.copy(targetCameraPos);
+      controls.target.copy(targetLookAt);
+      controls.enabled = true;
+      controls.update();
+    }
+  });
+};
+
+const enterBuildingView = (building: BuildingInstance) => {
+  activeBuilding = building;
+  totalFloors.value = building.floors;
+
+  viewMode.value = 'building';
+  freezeTooltip.value = true;
+  selectedOutlineObjects = [];
+  outlinePass.selectedObjects = [];
+
+  buildings.forEach((b) => {
+    b.rootGroup.visible = b === building;
   });
 
-  seat.userData.status = 'selected';
-  applySeatMaterialByStatus(seat);
-
-  gsap.fromTo(
-    seat.scale,
-    { x: 1, y: 1, z: 1 },
-    {
-      x: 1.1,
-      y: 1.1,
-      z: 1.1,
-      duration: 0.2,
-      yoyo: true,
-      repeat: 1,
-      ease: 'power1.inOut'
-    }
-  );
-
-  selectedOutlineObjects = [seat];
-  outlinePass.selectedObjects = selectedOutlineObjects;
-
-  selectedSeat.value = seat;
-  reservationSeatId.value = seat.userData.id;
-
-  reservationForm.date = timeFilter.date;
-  reservationForm.start = timeFilter.start || timeSlots.value[0] || '08:00';
-
-  const idx = timeSlots.value.indexOf(reservationForm.start);
-  const endIdx = Math.min(idx + 2, timeSlots.value.length - 1); // 默认加 1 小时
-  reservationForm.end = timeSlots.value[endIdx] || '22:00';
-
-  // 初始化时间条
-  updateTimeBar();
-
-  showReservationModal.value = true;
-};
-
-// 取消预约弹窗
-const cancelReservation = () => {
-  if (selectedSeat.value) {
-    selectedSeat.value.userData.status = computeSeatStatusByFilter(
-      selectedSeat.value
-    );
-    applySeatMaterialByStatus(selectedSeat.value);
-  }
-  selectedSeat.value = null;
-  showReservationModal.value = false;
-  selectedOutlineObjects = [];
-  outlinePass.selectedObjects = selectedOutlineObjects;
-};
-
-// 确认预约（当前先保持前端逻辑，不和后端联动）
-// 确认预约（向后端发送请求）
-const confirmReservation = async () => {
-  if (!selectedSeat.value) {
-    showReservationModal.value = false;
-    return;
-  }
-
-  if (!reservationForm.date || !reservationForm.start || !reservationForm.end) {
-    alert('请先选择完整的预约时间段');
-    return;
-  }
-
-  const startM = parseTimeStr(reservationForm.start);
-  const endM = parseTimeStr(reservationForm.end);
-  const lastM = 22 * 60;
-
-  if (endM == null || endM > lastM) {
-    alert('结束时间不能晚于 22:00');
-    return;
-  }
-  if (startM != null && endM <= startM) {
-    alert('结束时间必须晚于开始时间');
-    return;
-  }
-
-  try {
-    // 从 sessionStorage 获取用户ID（根据你登录时的存储方式）
-    const getCurrentUserId = () => {
-      // 首先尝试直接获取 userId
-      const userId = sessionStorage.getItem('userId');
-      if (userId) {
-        return parseInt(userId);
-      }
-
-      // 如果 userId 不存在，尝试从 userInfo 中获取
-      const userInfo = sessionStorage.getItem('userInfo');
-      if (userInfo) {
-        try {
-          const user = JSON.parse(userInfo);
-          if (user.userId) {
-            return user.userId;
-          } else {
-            throw new Error('用户信息中没有找到 userId 字段');
-          }
-        } catch (e) {
-          throw new Error('解析用户信息失败: ' + e.message);
-        }
-      }
-
-      // 检查是否登录
-      const isLoggedIn = sessionStorage.getItem('isLoggedIn');
-      if (isLoggedIn !== 'true') {
-        throw new Error('用户未登录，请先登录');
-      }
-
-      // 如果到这里还没有返回或抛出错误，说明找不到用户ID
-      throw new Error('无法获取用户ID，请重新登录');
-    };
-
-    const userId = getCurrentUserId();
-    console.log('当前用户ID:', userId);
-
-    // 构建符合后端 API 要求的 JSON 数据
-    const reservationData = {
-      seatId: selectedSeat.value.userData.backendSeatId,
-      userId: userId,
-      resvDate: reservationForm.date,
-      resvstartTime: reservationForm.start,
-      resvendTime: reservationForm.end
-    };
-
-
-    console.log('发送预约数据:', reservationData);
-
-    // 发送 POST 请求到后端
-    const response = await api.post('/reservation', reservationData);
-
-    console.log('预约响应:', response.data);
-
-    if (response.data.code === 200 || response.data.success) {
-      // 预约成功
-      const seat = selectedSeat.value;
-
-      // 更新前端状态
-      if (!seat.userData.resvSummary) {
-        seat.userData.resvSummary = [];
-      }
-
-      seat.userData.resvSummary.push({
-        start: reservationForm.start,
-        end: reservationForm.end
-      });
-
-      seat.userData.status = computeSeatStatusByFilter(seat);
-      applySeatMaterialByStatus(seat);
-
-      alert(`预约成功！\n座位: ${seat.userData.id}\n时间: ${reservationForm.date} ${reservationForm.start} - ${reservationForm.end}`);
-
-      // 重置状态
-      selectedSeat.value = null;
-      showReservationModal.value = false;
-      selectedOutlineObjects = [];
-      outlinePass.selectedObjects = selectedOutlineObjects;
-
-      // 刷新当前楼层数据
-      if (viewMode.value === 'floor') {
-        await fetchFloorLayout(currentFloor.value);
-      }
-    } else {
-      const errorMsg = response.data.msg || response.data.message || '预约失败，请重试';
-      alert(`预约失败: ${errorMsg}`);
-    }
-
-  } catch (error) {
-    console.error('预约请求失败:', error);
-
-    if (error.response) {
-      const errorMsg = error.response.data.msg || error.response.data.message || '服务器错误';
-      alert(`预约失败 (${error.response.status}): ${errorMsg}`);
-    } else if (error.request) {
-      alert('网络错误，请检查网络连接');
-    } else {
-      alert('预约失败: ' + error.message);
-    }
-  }
+  flyCameraToBuilding(building);
 };
 
 // --- 渲染循环 & 事件 ---
@@ -1751,15 +2274,7 @@ const animate = () => {
 };
 
 const handleResize = () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  composer.setSize(window.innerWidth, window.innerHeight);
-  smaaPass.setSize(
-    window.innerWidth * renderer.getPixelRatio(),
-    window.innerHeight * renderer.getPixelRatio()
-  );
-  outlinePass.setSize(window.innerWidth, window.innerHeight);
+  resizeByContainer();
   if (controls) controls.update();
 };
 
@@ -1832,12 +2347,13 @@ const initDefaultTimeFilter = () => {
   timeFilter.start = startSlot;
 
   const idx = slots.indexOf(startSlot);
-  const endIdx = Math.min(idx + 2, slots.length - 1); // 默认 +1 小时
+  const endIdx = Math.min(idx + 2, slots.length - 1);
   timeFilter.end = slots[endIdx];
 };
 
 // 时间筛选变化时：重新从后端拉取当前楼层布局
 const applyTimeFilter = async () => {
+  if (showReservationModal.value) return;
   const startM = parseTimeStr(timeFilter.start);
   let endM = parseTimeStr(timeFilter.end);
   const lastM = 22 * 60;
@@ -1857,17 +2373,25 @@ const applyTimeFilter = async () => {
   }
 };
 
-onMounted(() => {
+watch(
+  () => [timeFilter.date, timeFilter.start, timeFilter.end],
+  async () => {
+    if (showReservationModal.value) return;
+    await applyTimeFilter();
+  }
+);
+
+onMounted(async ()  => {
   initDateAndTimeOptions();
   initTimeSlots();
   initDefaultTimeFilter();
 
   initScene();
-  createBuilding();
   createEnvironment();
-  createEmptyFloorGroups();
 
   animate();
+  await loadBuildingsFromBackend();
+  activeBuilding = null;
 
   window.addEventListener('resize', handleResize);
   window.addEventListener('click', onMouseClick);
@@ -1878,8 +2402,11 @@ onBeforeUnmount(() => {
   window.removeEventListener('resize', handleResize);
   window.removeEventListener('click', onMouseClick);
   window.removeEventListener('mousemove', onMouseMove);
-  cancelAnimationFrame(animationId);
-  if (controls) controls.dispose();
+
+  if (animationId) cancelAnimationFrame(animationId);
+  controls?.dispose();
+  renderer?.dispose();
+  composer?.dispose();
 });
 </script>
 
@@ -1901,6 +2428,10 @@ canvas {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.canvas-disabled {
+  pointer-events: none;
 }
 
 .loading-overlay {
@@ -2001,7 +2532,6 @@ canvas {
         margin-bottom: 3px;
       }
 
-      input,
       select {
         padding: 5px 8px;
         border-radius: 8px;
@@ -2113,18 +2643,17 @@ canvas {
         height: 14px;
         border-radius: 50%;
         margin-right: 6px;
-
-        &.free {
-          background: #7ec4b8;
-        }
         &.partial {
           background: #ffe9a7;
         }
         &.occupied {
           background: #f28b82;
         }
-        &.selected {
-          background: #fff59d;
+        &.free {
+          background: #7ec4b8;
+        }
+        &.disabled {
+          background: #9ca3af;
         }
       }
     }
@@ -2136,120 +2665,12 @@ canvas {
   z-index: 20;
   padding: 8px 12px;
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.8);
+  background: rgba(15, 23, 42, 0.9);
   color: #f9fafb;
   font-size: 0.9rem;
   pointer-events: none;
   transform: translate3d(0, 0, 0);
   white-space: nowrap;
-}
-
-.reservation-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(15, 23, 42, 0.35);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 30;
-}
-
-.reservation-dialog {
-  width: 320px;
-  max-width: 90vw;
-  background: #f9fbff;
-  border-radius: 16px;
-  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
-  padding: 18px 20px 16px;
-  animation: fadeInUp 0.2s ease-out;
-
-  h2 {
-    margin: 0 0 8px;
-    font-size: 1.1rem;
-    color: #1f2937;
-  }
-
-  .seat-label {
-    margin: 0 0 12px;
-    font-size: 0.9rem;
-    color: #4b5563;
-
-    strong {
-      color: #2563eb;
-    }
-  }
-
-  .form-row {
-    display: flex;
-    flex-direction: column;
-    margin-bottom: 10px;
-
-    label {
-      font-size: 0.8rem;
-      color: #6b7280;
-      margin-bottom: 4px;
-    }
-
-    input,
-    select {
-      padding: 6px 8px;
-      border-radius: 8px;
-      border: 1px solid #d1d5db;
-      font-size: 0.9rem;
-      outline: none;
-      background: #ffffff;
-
-      &:focus {
-        border-color: #60a5fa;
-        box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.35);
-      }
-    }
-  }
-
-  .time-row {
-    flex-direction: row;
-    gap: 8px;
-
-    > div {
-      flex: 1;
-    }
-  }
-
-  .dialog-actions {
-    margin-top: 6px;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-
-    button {
-      border-radius: 999px;
-      padding: 6px 12px;
-      font-size: 0.85rem;
-      border: none;
-      cursor: pointer;
-      transition: all 0.15s ease;
-    }
-
-    .btn-cancel {
-      background: #e5e7eb;
-      color: #374151;
-
-      &:hover {
-        background: #d1d5db;
-      }
-    }
-
-    .btn-confirm {
-      background: linear-gradient(135deg, #3b82f6, #60a5fa);
-      color: #f9fafb;
-      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
-
-      &:hover {
-        transform: translateY(-1px);
-        box-shadow: 0 7px 16px rgba(37, 99, 235, 0.45);
-      }
-    }
-  }
 }
 
 .fade-enter-active,
@@ -2280,124 +2701,288 @@ canvas {
     transform: translate3d(0, 0, 0);
   }
 }
-/* 时间条样式 */
-.time-bar-container {
-  margin-bottom: 20px;
-  padding: 15px;
-  background: rgba(249, 251, 255, 0.9);
-  border-radius: 10px;
-  border: 1px solid #e5e7eb;
+
+/* ✅ 预约弹窗遮罩层 */
+.reservation-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(10px);
 }
 
-.time-bar-title {
-  margin: 0 0 10px 0;
-  font-size: 0.9rem;
-  color: #4b5563;
-  font-weight: 600;
-}
-
-.time-bar {
-  position: relative;
-  height: 60px;
-  background: #f8fafc;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
+/* Dialog */
+.reservation-dialog {
+  width: min(920px, 96vw);
+  max-height: 90vh;
   overflow: hidden;
-  margin-bottom: 8px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.8);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
 }
 
+/* Header */
+.dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 18px 12px;
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  background: linear-gradient(135deg, rgba(96, 165, 250, 0.22), rgba(255, 255, 255, 0.6));
+
+  .dialog-title {
+    margin: 0;
+    font-size: 1.15rem;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: 0.2px;
+  }
+
+  .seat-meta {
+    margin-top: 8px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+
+    .seat-pill,
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      height: 26px;
+      padding: 0 10px;
+      border-radius: 999px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      border: 1px solid rgba(226, 232, 240, 0.9);
+      background: rgba(255, 255, 255, 0.75);
+      color: #0f172a;
+    }
+
+    .status-pill.partial {
+      background: rgba(255, 233, 167, 0.55);
+      border-color: rgba(245, 158, 11, 0.35);
+    }
+    .status-pill.occupied {
+      background: rgba(242, 139, 130, 0.25);
+      border-color: rgba(239, 68, 68, 0.35);
+    }
+    .status-pill.free {
+      background: rgba(126, 196, 184, 0.25);
+      border-color: rgba(16, 185, 129, 0.35);
+    }
+  }
+}
+
+.icon-close {
+  border: none;
+  background: rgba(15, 23, 42, 0.08);
+  color: #0f172a;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    background: rgba(15, 23, 42, 0.12);
+  }
+}
+
+/* Body */
+.dialog-body {
+  padding: 14px 18px 12px;
+  overflow: auto;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr 1.6fr;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+
+  @media (max-width: 860px) {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.field label,
+.quick label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.78rem;
+  color: #64748b;
+  font-weight: 700;
+}
+
+.field select {
+  width: 100%;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: rgba(255, 255, 255, 0.95);
+  padding: 0 10px;
+  outline: none;
+
+  &:focus {
+    border-color: rgba(96, 165, 250, 0.9);
+    box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.25);
+  }
+}
+
+.quick-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.chip {
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: rgba(255, 255, 255, 0.9);
+  color: #0f172a;
+  font-weight: 700;
+  cursor: pointer;
+  transition: 0.15s ease;
+
+  &:hover {
+    transform: translateY(-1px);
+    background: rgba(96, 165, 250, 0.14);
+  }
+}
+
+/* Timebar card */
+.timebar-card {
+  background: rgba(248, 250, 252, 0.9);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  border-radius: 16px;
+  padding: 12px 12px 10px;
+  position: relative; /* 确保作为定位上下文 */
+  overflow: visible !important; /* 关键：允许子元素超出容器 */
+}
+
+.timebar-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+
+  .sub-title {
+    font-weight: 800;
+    color: #0f172a;
+  }
+
+  .sub-hint {
+    font-size: 0.78rem;
+    color: #64748b;
+  }
+}
+
+/* ticks */
 .time-ticks {
   display: flex;
   justify-content: space-between;
-  padding: 5px 0;
-  border-bottom: 1px solid #e2e8f0;
-  background: rgba(255, 255, 255, 0.8);
-}
-
-.time-tick {
-  font-size: 0.7rem;
-  color: #64748b;
+  margin-top: 8px; // 与时间条保持间距
+  padding: 0 2px; // 去掉上下内边距，仅保留左右
+  color: #475569 !important;
+  font-weight: 700;
+  font-size: 0.74rem;
+  z-index: 2;
   position: relative;
-  transform: translateX(-50%);
 }
 
-.time-tick:first-child {
-  transform: translateX(0);
+/* bar */
+.time-bar {
+  position: relative;
+  height: 54px;
+  border-radius: 14px;
+  border: 1px solid rgba(203, 213, 225, 0.9);
+  background: rgba(255, 255, 255, 0.8);
+  overflow: visible !important; /* 关键：允许选择标签超出 */
+  z-index: 1;
+  margin-bottom: 4px; // 增加底部间距，与刻度分开
 }
 
-.time-tick:last-child {
-  transform: translateX(-100%);
-}
 
 .time-bar-slots {
   position: absolute;
-  top: 25px;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
+  z-index: 2; /* 确保在背景上方 */
 }
+
 
 .time-slot {
   position: absolute;
-  height: 30px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
+  top: 10px;
+  height: 34px;
+  border-radius: 10px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.7rem;
-  font-weight: 500;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  z-index: 3;
+
+  /* 确保不同的状态都有明显的颜色 */
+  &.free {
+    background: rgba(34, 197, 94, 0.45) !important; /* 提高透明度 */
+    border: 1px solid rgba(34, 197, 94, 0.65) !important;
+  }
+
+  &.occupied {
+    background: rgba(239, 68, 68, 0.45) !important;
+    border: 1px solid rgba(239, 68, 68, 0.65) !important;
+    cursor: not-allowed;
+  }
+
+  &.selected {
+    background: rgba(59, 130, 246, 0.45) !important;
+    border: 1px solid rgba(59, 130, 246, 0.65) !important;
+    z-index: 4;
+  }
 }
 
-.time-slot.free {
-  background: linear-gradient(135deg, #86efac, #4ade80);
-  border: 1px solid #22c55e;
-}
 
-.time-slot.occupied {
-  background: linear-gradient(135deg, #fca5a5, #ef4444);
-  border: 1px solid #dc2626;
-}
 
-.time-slot.selected {
-  background: linear-gradient(135deg, #93c5fd, #3b82f6);
-  border: 1px solid #2563eb;
-  z-index: 2;
-  box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
-}
-
-.time-slot:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-}
-
-/* 用户选择指示器 */
 .user-selection-indicator {
   position: absolute;
-  top: 0;
-  height: 100%;
-  background: rgba(59, 130, 246, 0.15);
-  border: 2px dashed #3b82f6;
-  border-radius: 4px;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  top: 10px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(59, 130, 246, 0.12);
+  border: 2px dashed rgba(59, 130, 246, 0.65);
+  z-index: 1000 !important; /* 确保最高层级 */
+  pointer-events: none; /* 防止干扰交互 */
 }
+
 
 .selection-label {
   position: absolute;
-  top: -20px;
+  top: -30px; /* 调整为更上方，避免被时间条剪裁 */
   left: 50%;
   transform: translateX(-50%);
   background: #3b82f6;
   color: white;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 0.7rem;
-  font-weight: 600;
+  padding: 6px 12px; /* 增加内边距，使文字更明显 */
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
   white-space: nowrap;
+  z-index: 1001 !important; /* 比指示器更高 */
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+
+  /* 确保标签完全可见，不被剪裁 */
+  visibility: visible !important;
+  opacity: 1 !important;
+  display: block !important;
 }
 
 .selection-label::after {
@@ -2406,72 +2991,93 @@ canvas {
   top: 100%;
   left: 50%;
   transform: translateX(-50%);
-  border-left: 5px solid transparent;
-  border-right: 5px solid transparent;
-  border-top: 5px solid #3b82f6;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid #3b82f6;
 }
 
-/* 时间条图例 */
-.time-bar-legend {
+
+/* legend */
+.timebar-legend {
   display: flex;
   justify-content: center;
-  gap: 15px;
+  gap: 14px;
   margin-top: 10px;
-}
-
-.legend-item {
-  display: flex;
-  align-items: center;
+  color: #475569;
   font-size: 0.8rem;
-  color: #4b5563;
-}
+  font-weight: 700;
 
-.color-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  margin-right: 6px;
-  display: inline-block;
-}
-
-.color-dot.free {
-  background: linear-gradient(135deg, #86efac, #4ade80);
-}
-
-.color-dot.occupied {
-  background: linear-gradient(135deg, #fca5a5, #ef4444);
-}
-
-.color-dot.selected {
-  background: linear-gradient(135deg, #93c5fd, #3b82f6);
-}
-
-/* 弹窗宽度调整 */
-.reservation-dialog {
-  width: 500px; /* 增加宽度以容纳时间条 */
-  max-width: 90vw;
-}
-
-/* 响应式调整 */
-@media (max-width: 600px) {
-  .time-bar {
-    height: 50px;
-  }
-
-  .time-tick {
-    font-size: 0.6rem;
-  }
-
-  .time-slot {
-    height: 25px;
-    font-size: 0.6rem;
-  }
-
-  .time-bar-legend {
-    flex-direction: column;
+  .lg {
+    display: flex;
     align-items: center;
-    gap: 8px;
+  }
+
+  .dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    display: inline-block;
+    margin-right: 6px;
+
+    &.free {
+      background: rgba(34, 197, 94, 0.7);
+    }
+
+    &.occupied {
+      background: rgba(239, 68, 68, 0.7);
+    }
+
+    &.selected {
+      background: rgba(59, 130, 246, 0.75);
+    }
   }
 }
 
+.tip {
+  margin: 10px 2px 0;
+  color: #64748b;
+  font-size: 0.8rem;
+}
+
+/* Footer actions */
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 12px 18px 16px;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.btn {
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  font-weight: 800;
+  cursor: pointer;
+  transition: 0.15s ease;
+
+  &.ghost {
+    background: rgba(255, 255, 255, 0.85);
+    color: #0f172a;
+
+    &:hover {
+      transform: translateY(-1px);
+      background: rgba(148, 163, 184, 0.18);
+    }
+  }
+
+  &.primary {
+    border: none;
+    background: linear-gradient(135deg, #60a5fa, #3b82f6);
+    color: #fff;
+    box-shadow: 0 14px 30px rgba(59, 130, 246, 0.28);
+
+    &:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 18px 38px rgba(59, 130, 246, 0.32);
+    }
+  }
+}
 </style>

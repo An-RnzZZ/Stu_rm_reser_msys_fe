@@ -47,7 +47,7 @@ component: () => import('../views/Login.vue'),
   {
     path: '/reservation',
     name: 'reservation',
-    component: () => import('../views/RoomBooking_1.vue'),
+    component: () => import('../views/RoomBooking.vue'),
     meta: {
       requiresAuth: true,
       title: '预约座位',
@@ -114,6 +114,12 @@ component: () => import('../views/Login.vue'),
         name: 'admin-seats',
         component: () => import('../views/admin/SeatManage.vue'),
         meta: { requiresAdmin: true, title: '座位管理 - 管理后台' }
+      },
+      {
+        path: 'buildings',
+        name: 'admin-buildings',
+        component: () => import('../views/admin/BuildingManage.vue'),
+        meta: { requiresAdmin: true, title: '建筑管理 - 管理后台' }
       },
       {
         path: 'signs',

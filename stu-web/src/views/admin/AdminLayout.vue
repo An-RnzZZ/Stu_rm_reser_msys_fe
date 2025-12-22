@@ -54,6 +54,11 @@
               <span>座位管理</span>
             </el-menu-item>
 
+            <el-menu-item index="/admin/buildings">
+              <el-icon><OfficeBuilding /></el-icon>
+              <span>建筑管理</span>
+            </el-menu-item>
+
             <el-menu-item index="/admin/signs">
               <el-icon><Finished /></el-icon>
               <span>签到记录</span>
@@ -95,7 +100,6 @@ import {
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
-const route = useRoute()
 
 // 侧边栏折叠状态
 const isCollapse = ref(false)
