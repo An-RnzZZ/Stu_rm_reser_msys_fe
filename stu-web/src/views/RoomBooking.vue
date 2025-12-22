@@ -1,6 +1,8 @@
 <template>
+  <!-- 确保最外层 div 有完整闭合 -->
   <div class="scene-container" ref="canvasContainer">
-    <canvas ref="canvasRef" :class="{ 'canvas-disabled': isModalOpen }" />
+    <!-- 把 <canvas /> 改为 <canvas></canvas>（解决 Vue 解析兼容问题） -->
+    <canvas ref="canvasRef" :class="{ 'canvas-disabled': isModalOpen }"></canvas>
 
     <!-- ================== 加载中 ================== -->
     <div v-if="loading" class="loading-overlay">
@@ -139,14 +141,14 @@
             <div class="field">
               <label>开始</label>
               <select v-model="reservationForm.start">
-                <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+                <option v-for="t in startOptions" :key="t" :value="t">{{ t }}</option>
               </select>
             </div>
 
             <div class="field">
               <label>结束</label>
               <select v-model="reservationForm.end">
-                <option v-for="t in timeSlots" :key="t" :value="t">{{ t }}</option>
+                <option v-for="t in endOptions" :key="t" :value="t">{{ t }}</option>
               </select>
             </div>
 
@@ -184,7 +186,7 @@
                   @mousedown.stop.prevent="onSlotMouseDown(slot)"
                   @mouseenter.stop.prevent="onSlotMouseEnter(slot)"
                   :title="slot.label"
-                />
+                ></div>
                 <div
                   v-if="selectionIndicator"
                   class="user-selection-indicator"
@@ -219,8 +221,10 @@
         </div>
       </div>
     </div>
+    <!-- 关键：确保最外层 div 有结束标签 -->
   </div>
 </template>
+
 
 <script setup lang="ts">
 import { ref, shallowRef, markRaw, onMounted, onBeforeUnmount, reactive, watch, computed } from 'vue';
@@ -506,11 +510,28 @@ const formatMin = (min: number) => {
 
 /** 校验一个区间内是否碰到 occupied（只要有交集就不允许） */
 const rangeHitsOccupied = (s: number, e: number) => {
-  for (let m = s; m < e; m += SLOT_STEP) {
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+
+  // 检查区间是否超出筛选范围 → 直接不可选
+  if (e <= filterStartMin || s >= filterEndMin) {
+    return true;
+  }
+
+  // 修正区间到筛选范围内（防止部分超出）
+  const validS = Math.max(filterStartMin, s);
+  const validE = Math.min(filterEndMin, e);
+
+  if (validE <= validS) return true;
+
+  // 原有逻辑 - 检查区间内的slot是否被占用
+  for (let m = validS; m < validE; m += SLOT_STEP) {
     if (isSlotOccupied(m)) return true;
   }
   return false;
 };
+
+
 
 const commitRangeToForm = (a: number, b: number) => {
   // 使用左侧筛选面板的范围
@@ -522,7 +543,7 @@ const commitRangeToForm = (a: number, b: number) => {
 
   if (e <= s) return;
 
-  // 不允许选到 occupied
+  // 不允许选到 occupied（包括范围外的）
   if (rangeHitsOccupied(s, e)) return;
 
   reservationForm.start = formatMin(s);
@@ -544,9 +565,19 @@ const onSlotMouseDown = (slot: { min: number; cls: string }) => {
 };
 
 const isSlotOccupied = (slotStartMin: number) => {
-  // 一个 slot 的区间：[slotStartMin, slotStartMin + 30)
+  // 第一步：先检查slot是否在外部筛选的时间范围内，不在则直接不可选
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+
+  // 一个slot的区间：[slotStartMin, slotStartMin + 30)
   const slotEnd = slotStartMin + SLOT_STEP;
 
+  // 超出筛选范围 → 直接标记为不可选
+  if (slotEnd <= filterStartMin || slotStartMin >= filterEndMin) {
+    return true;
+  }
+
+  // 第二步：原有逻辑 - 检查是否被预约占用
   const list = selectedSeatUI.resvSummary;
   if (!Array.isArray(list) || list.length === 0) return false;
 
@@ -578,6 +609,8 @@ const onBarMouseDown = (event: MouseEvent) => {
   const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
   const totalMinutes = filterEndMin - filterStartMin;
 
+  if (totalMinutes <= 0) return; // 防止无效范围
+
   // 计算点击位置对应的时间（按30分钟对齐）
   const minute = filterStartMin + Math.floor(percent * totalMinutes / SLOT_STEP) * SLOT_STEP;
   const alignedMinute = Math.max(filterStartMin, Math.min(minute, filterEndMin - SLOT_STEP));
@@ -586,6 +619,7 @@ const onBarMouseDown = (event: MouseEvent) => {
   dragCurrentMin.value = alignedMinute;
   commitRangeToForm(alignedMinute, alignedMinute);
 };
+
 
 const onBarMouseMove = (event: MouseEvent) => {
   if (!dragging.value || dragAnchorMin.value == null) return;
@@ -598,6 +632,8 @@ const onBarMouseMove = (event: MouseEvent) => {
   const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
   const totalMinutes = filterEndMin - filterStartMin;
 
+  if (totalMinutes <= 0) return;
+
   // 计算鼠标位置对应的时间（按30分钟对齐）
   const minute = filterStartMin + Math.floor(percent * totalMinutes / SLOT_STEP) * SLOT_STEP;
   const alignedMinute = Math.max(filterStartMin, Math.min(minute, filterEndMin - SLOT_STEP));
@@ -607,6 +643,7 @@ const onBarMouseMove = (event: MouseEvent) => {
     commitRangeToForm(dragAnchorMin.value, alignedMinute);
   }
 };
+
 
 const onBarMouseUp = () => {
   dragging.value = false;
@@ -754,12 +791,16 @@ const quickPick = (mins: number) => {
   const s = parseTimeStr(reservationForm.start);
   if (s == null) return;
 
-  const e = Math.min(BAR_END_MIN, s + mins);
+  const filterStartMin = parseTimeStr(timeFilter.start) || BAR_START_MIN;
+  const filterEndMin = parseTimeStr(timeFilter.end) || BAR_END_MIN;
+
+  // 强制限定结束时间不超出筛选范围
+  const e = Math.min(filterEndMin, s + mins);
   if (rangeHitsOccupied(s, e)) return;
 
   reservationForm.end = formatMin(e);
-  updateTimeTicks(s, e);
 };
+
 
 const confirmReservation = async () => {
   if (!selectedSeat.value) {
@@ -770,6 +811,19 @@ const confirmReservation = async () => {
   if (!reservationForm.date || !reservationForm.start || !reservationForm.end) {
     alert('请先选择完整的预约时间段');
     return;
+  }
+
+  // 新增：校验预约时间是否在外部筛选范围内
+  const filterStartMin = parseTimeStr(timeFilter.start);
+  const filterEndMin = parseTimeStr(timeFilter.end);
+  const resvStartMin = parseTimeStr(reservationForm.start);
+  const resvEndMin = parseTimeStr(reservationForm.end);
+
+  if (filterStartMin && filterEndMin) {
+    if (resvStartMin < filterStartMin || resvEndMin > filterEndMin) {
+      alert('预约时间必须在筛选的时间范围内！');
+      return;
+    }
   }
 
   const startM = parseTimeStr(reservationForm.start);
@@ -784,6 +838,7 @@ const confirmReservation = async () => {
     alert('结束时间必须晚于开始时间');
     return;
   }
+
 
   try {
     const getCurrentUserId = () => {
@@ -1122,12 +1177,16 @@ const handleSeatClick = (seat: THREE.Object3D) => {
     ? seat.userData.resvSummary.map(r => ({ start: r.start, end: r.end }))
     : [];
 
+  // 初始化：日期和时间都与外部筛选保持一致
   reservationForm.date = timeFilter.date;
-  reservationForm.start = '';
-  reservationForm.end = '';
+  // 开始时间默认选外部筛选的start
+  reservationForm.start = startOptions.value.length > 0 ? startOptions.value[0] : '';
+  // 结束时间默认选外部筛选的end（或开始时间之后的第一个可选时间）
+  reservationForm.end = endOptions.value.length > 0 ? endOptions.value[endOptions.value.length - 1] : '';
 
   showReservationModal.value = true;
 };
+
 
 const createWindowsForBuilding = (building: BuildingInstance) => {
   building.floorStructureMeshes.forEach((floorMesh, i) => {
@@ -1788,6 +1847,30 @@ const resizeByContainer = () => {
     );
   }
 };
+
+
+const startOptions = computed(() => {
+  const filterStart = parseTimeStr(timeFilter.start);
+  const filterEnd = parseTimeStr(timeFilter.end);
+  if (!filterStart || !filterEnd || filterStart >= filterEnd) return [];
+
+  return timeSlots.value.filter(t => {
+    const tMin = parseTimeStr(t);
+    return tMin >= filterStart && tMin < filterEnd;
+  });
+});
+
+// 结束时间可选范围：开始时间之后且在外部筛选end之前的时间段
+const endOptions = computed(() => {
+  const filterEnd = parseTimeStr(timeFilter.end);
+  const startMin = parseTimeStr(reservationForm.start);
+  if (!filterEnd || !startMin || startMin >= filterEnd) return [];
+
+  return timeSlots.value.filter(t => {
+    const tMin = parseTimeStr(t);
+    return tMin > startMin && tMin <= filterEnd;
+  });
+});
 
 // --- 交互：鼠标移动 ---
 const onMouseMove = (event: MouseEvent) => {
@@ -2587,12 +2670,21 @@ canvas {
     display: flex;
     align-items: center;
     gap: 8px;
+    // 新增：允许自动换行
+    flex-wrap: wrap;
+    // 调整：增加最小高度，换行后背景栏不会塌陷
+    min-height: 40px;
+    // 调整：上下内边距适配换行
+    padding: 8px 14px;
 
     .floor-label {
       font-size: 0.85rem;
       color: #374151;
       margin-right: 6px;
       white-space: nowrap;
+      // 标签独占一行（可选）
+      width: 100%;
+      margin-bottom: 4px;
     }
 
     button {
