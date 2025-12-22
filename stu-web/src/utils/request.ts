@@ -4,6 +4,7 @@ import axios from 'axios'
 const request = axios.create({
   baseURL: 'http://localhost:8080',  // 你的后端地址
   timeout: 5000,
+  withCredentials: true,
   headers: {
     'Content-Type': 'application/json'
   }

@@ -2,6 +2,9 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 
+import axios from 'axios'
+axios.defaults.withCredentials = true
+// 如果需要设置 baseURL：
 
 // Element Plus 引入
 import ElementPlus from 'element-plus'
