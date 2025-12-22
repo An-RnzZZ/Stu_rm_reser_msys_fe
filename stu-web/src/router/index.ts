@@ -122,6 +122,18 @@ component: () => import('../views/Login.vue'),
         meta: { requiresAdmin: true, title: '签到记录 - 管理后台' }
       },
       {
+        path: 'violations',
+        name: 'admin-violations',
+        component: () => import('../views/admin/ViolationManage.vue'),
+        meta: { requiresAdmin: true, title: '违规管理 - 管理后台' }
+      },
+      {
+        path: 'appeals',
+        name: 'admin-appeals',
+        component: () => import('../views/admin/AppealManage.vue'),
+        meta: { requiresAdmin: true, title: '申诉管理 - 管理后台' }
+      },
+      {
         path: 'logs',
         name: 'admin-logs',
         component: () => import('../views/admin/AdminLogList.vue'),
