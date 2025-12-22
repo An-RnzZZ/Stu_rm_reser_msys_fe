@@ -60,13 +60,18 @@
             </el-menu-item>
 
             <el-menu-item index="/admin/violations">
-              <el-icon><Bell /></el-icon>
-              <span>违规管理</span>
+                <el-icon><Bell /></el-icon>
+                <span>违规管理</span>
             </el-menu-item>
 
             <el-menu-item index="/admin/appeals">
-              <el-icon><Document /></el-icon>
-              <span>申诉管理</span>
+                <el-icon><Document /></el-icon>
+                <span>申诉管理</span>
+            </el-menu-item>
+            
+            <el-menu-item index="/admin/logs">
+              <el-icon><Document /></el-icon> <!-- 操作日志改用文档图标 -->
+              <span>操作日志</span>
             </el-menu-item>
 
             <el-divider style="margin: 20px 12px; border-color: rgba(255,255,255,0.1);" />
@@ -102,7 +107,6 @@ import {
   Grid,
   Finished,
   HomeFilled,
-  Bell,
   Document
 } from '@element-plus/icons-vue'
 

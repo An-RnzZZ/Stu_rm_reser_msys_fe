@@ -126,7 +126,7 @@ component: () => import('../views/Login.vue'),
         name: 'admin-signs',
         component: () => import('../views/admin/SignManage.vue'),
         meta: { requiresAdmin: true, title: '签到记录 - 管理后台' }
-      } ,
+      },
       {
         path: 'violations',
         name: 'admin-violations',
@@ -138,6 +138,12 @@ component: () => import('../views/Login.vue'),
         name: 'admin-appeals',
         component: () => import('../views/admin/AppealManage.vue'),
         meta: { requiresAdmin: true, title: '申诉管理 - 管理后台' }
+      },
+      {
+        path: 'logs',
+        name: 'admin-logs',
+        component: () => import('../views/admin/AdminLogList.vue'),
+        meta: { requiresAdmin: true, title: '操作日志 - 管理后台' }
       }
     ]
   },
@@ -152,7 +158,7 @@ component: () => import('../views/Login.vue'),
 const router = createRouter({
   history: createWebHistory(),
   routes,
-  scrollBehavior(to, from, savedPosition) {
+  scrollBehavior(_to, _from, savedPosition) {
     if (savedPosition) {
       return savedPosition
     } else {
@@ -161,7 +167,7 @@ const router = createRouter({
   }
 })
 
-router.beforeEach((to,from, next) => {
+router.beforeEach((to,_from, next) => {
   const isUserLoggedIn = sessionStorage.getItem('isLoggedIn')
   const isAdminLoggedIn = sessionStorage.getItem('isAdminLoggedIn')
 
