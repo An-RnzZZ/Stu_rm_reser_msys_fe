@@ -172,6 +172,8 @@ onMounted(() => {
   padding: 0 20px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   z-index: 100;
+  height: 60px;
+  flex-shrink: 0;
 }
 
 .header-left {
@@ -221,11 +223,20 @@ onMounted(() => {
   color: #ffffff !important;
 }
 
-/* 侧边栏 */
+/* 侧边栏 - 核心修改：隐藏滚动条 */
 .admin-aside {
   background-color: #1e3a5f;
   transition: width 0.3s;
-  overflow: hidden;
+  overflow-y: auto; /* 保留滚动功能（内容超出时仍可滚动） */
+  overflow-x: hidden;
+  /* 隐藏滚动条 - 兼容不同浏览器 */
+  -ms-overflow-style: none;  /* IE 和 Edge */
+  scrollbar-width: none;     /* Firefox */
+}
+
+/* 隐藏 Chrome/Safari 等 Webkit 内核浏览器的滚动条 */
+.admin-aside::-webkit-scrollbar {
+  display: none;
 }
 
 .admin-menu {
@@ -250,10 +261,18 @@ onMounted(() => {
   background: linear-gradient(135deg, #3d7ab7 0%, #5a9fd4 100%) !important;
 }
 
-/* 主内容区域 */
+
 .admin-main {
   background-color: #f0f2f5;
   padding: 20px;
   overflow-y: auto;
+  overflow-x: hidden;
+  height: calc(100vh - 60px);
+}
+
+/* 确保内部容器可以滚动 */
+:deep(.el-main) {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
 }
 </style>

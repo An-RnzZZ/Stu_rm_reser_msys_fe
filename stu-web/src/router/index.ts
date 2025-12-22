@@ -75,6 +75,12 @@ component: () => import('../views/Login.vue'),
     }
   },
   {
+    path: '/my-violations',
+    name: 'my-violations',
+    component: () => import('../views/MyViolations.vue'),
+    meta: { requiresAuth: true, title: '我的违规记录', keepAlive: true }
+  },
+  {
     path: '/admin/login',
     name: 'admin-login',
     component: () => import('../views/admin/AdminLogin.vue'),
