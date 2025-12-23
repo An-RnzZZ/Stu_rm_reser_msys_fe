@@ -17,9 +17,16 @@
           :prefix-icon="Search"
           @input="handleSearch"
         />
-        <el-button type="primary" :icon="Refresh" @click="loadUsers">
-          刷新
-        </el-button>
+        <div class="filter-group">
+          <el-select v-model="blacklistFilter" placeholder="黑名单筛选" style="width: 140px" @change="handleSearch">
+            <el-option label="全部用户" value="" />
+            <el-option label="正常用户" value="normal" />
+            <el-option label="黑名单用户" value="blacklisted" />
+          </el-select>
+          <el-button type="primary" :icon="Refresh" @click="loadUsers">
+            刷新
+          </el-button>
+        </div>
       </div>
     </el-card>
 
@@ -45,15 +52,38 @@
           </template>
         </el-table-column>
 
-        <el-table-column prop="userAccount" label="账号" min-width="180" />
-
-        <el-table-column label="注册状态" width="100">
-          <template #default>
-            <el-tag type="success" size="small">正常</el-tag>
+        <el-table-column prop="userAccount" label="账号" min-width="150" />
+        
+        <el-table-column label="违规次数" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.violationCount > 0" type="warning" size="small">
+              {{ row.violationCount }}次
+            </el-tag>
+            <span v-else class="text-gray">0次</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="黑名单状态" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.isBlacklisted" type="danger" size="small" effect="dark">
+              🚫 黑名单
+            </el-tag>
+            <el-tag v-else type="success" size="small">
+              ✓ 正常
+            </el-tag>
+          </template>
+        </el-table-column>
+        
+        <el-table-column label="黑名单到期" width="170">
+          <template #default="{ row }">
+            <span v-if="row.isBlacklisted && row.blacklistUntil">
+              {{ formatDateTime(row.blacklistUntil) }}
+            </span>
+            <span v-else class="text-gray">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button type="primary" link :icon="Edit" @click="handleEdit(row)">
               编辑
@@ -61,6 +91,35 @@
             <el-button type="primary" link :icon="View" @click="handleViewReservations(row)">
               预约
             </el-button>
+            
+            <!-- 黑名单操作 -->
+            <el-popconfirm
+              v-if="row.isBlacklisted"
+              title="确定要解除该用户的黑名单吗？"
+              confirm-button-text="确定"
+              cancel-button-text="取消"
+              @confirm="handleRemoveFromBlacklist(row)"
+            >
+              <template #reference>
+                <el-button type="success" link :icon="CircleCheck">
+                  解除
+                </el-button>
+              </template>
+            </el-popconfirm>
+            <el-popconfirm
+              v-else
+              title="确定要将该用户加入黑名单吗？"
+              confirm-button-text="确定"
+              cancel-button-text="取消"
+              @confirm="handleAddToBlacklist(row)"
+            >
+              <template #reference>
+                <el-button type="warning" link :icon="Warning">
+                  拉黑
+                </el-button>
+              </template>
+            </el-popconfirm>
+            
             <el-popconfirm
               title="确定要删除该用户吗？"
               confirm-button-text="确定"
@@ -126,7 +185,7 @@
     <el-dialog
       v-model="reservationsDialogVisible"
       :title="`${currentUser?.userName || '用户'} 的预约记录`"
-      width="700px"
+      width="750px"
     >
       <el-table :data="userReservations" stripe v-loading="reservationsLoading">
         <el-table-column prop="resvId" label="预约ID" width="80" />
@@ -136,15 +195,15 @@
           </template>
         </el-table-column>
         <el-table-column prop="resvDate" label="日期" width="120" />
-        <el-table-column label="时间段">
+        <el-table-column label="时间段" width="140">
           <template #default="{ row }">
-            {{ row.resvstartTime }} - {{ row.resvendTime }}
+            {{ formatTime(row.resvstartTime) }} - {{ formatTime(row.resvendTime) }}
           </template>
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.resvDate)">
-              {{ getStatusText(row.resvDate) }}
+            <el-tag :type="getResvStatusType(row)" size="small">
+              {{ getResvStatusText(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -157,13 +216,16 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { Search, Refresh, Edit, Delete, View } from '@element-plus/icons-vue'
+import { Search, Refresh, Edit, Delete, View, Warning, CircleCheck } from '@element-plus/icons-vue'
 
 // 用户数据类型
 interface User {
   userId: number
   userName: string
   userAccount: string
+  violationCount?: number
+  isBlacklisted?: boolean
+  blacklistUntil?: string
 }
 
 // 加载状态
@@ -179,8 +241,9 @@ const totalUsers = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 
-// 搜索
+// 搜索和筛选
 const searchKeyword = ref('')
+const blacklistFilter = ref('')
 
 // 过滤后的用户列表
 const filteredUsers = computed(() => {
@@ -193,6 +256,13 @@ const filteredUsers = computed(() => {
       user.userName?.toLowerCase().includes(keyword) ||
       user.userAccount?.toLowerCase().includes(keyword)
     )
+  }
+  
+  // 黑名单筛选
+  if (blacklistFilter.value === 'normal') {
+    result = result.filter(user => !user.isBlacklisted)
+  } else if (blacklistFilter.value === 'blacklisted') {
+    result = result.filter(user => user.isBlacklisted)
   }
 
   // 更新总数
@@ -228,6 +298,55 @@ const editRules: FormRules = {
 const reservationsDialogVisible = ref(false)
 const userReservations = ref<any[]>([])
 const currentUser = ref<User | null>(null)
+
+// 格式化时间
+const formatTime = (time: string) => time?.length > 5 ? time.substring(0, 5) : (time || '-')
+
+const formatDateTime = (dateTimeStr: string) => {
+  if (!dateTimeStr) return '-'
+  try {
+    const date = new Date(dateTimeStr)
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  } catch {
+    return dateTimeStr
+  }
+}
+
+// 预约状态映射
+const resvStatusMap: Record<string, { type: string; text: string }> = {
+  'ACTIVE': { type: 'primary', text: '有效' },
+  'COMPLETED': { type: 'success', text: '已完成' },
+  'VIOLATED': { type: 'danger', text: '已违约' },
+  'CANCELLED': { type: 'info', text: '已取消' }
+}
+
+const getResvStatusType = (row: any) => {
+  if (row.resvStatus && resvStatusMap[row.resvStatus]) {
+    return resvStatusMap[row.resvStatus].type
+  }
+  // 兼容旧数据
+  const today = new Date().toISOString().split('T')[0]
+  if (row.resvDate === today) return 'primary'
+  if (row.resvDate > today) return 'success'
+  return 'info'
+}
+
+const getResvStatusText = (row: any) => {
+  if (row.resvStatus && resvStatusMap[row.resvStatus]) {
+    return resvStatusMap[row.resvStatus].text
+  }
+  // 兼容旧数据
+  const today = new Date().toISOString().split('T')[0]
+  if (row.resvDate === today) return '今日'
+  if (row.resvDate > today) return '预约中'
+  return '已完成'
+}
 
 // 加载用户列表
 const loadUsers = async () => {
@@ -328,6 +447,48 @@ const handleDelete = async (user: User) => {
   }
 }
 
+// 加入黑名单
+const handleAddToBlacklist = async (user: User) => {
+  try {
+    const response = await fetch(`http://localhost:8080/admin/blacklist/${user.userId}`, {
+      method: 'POST'
+    })
+
+    const result = await response.json()
+
+    if (result.code === 200) {
+      ElMessage.success('用户已加入黑名单')
+      loadUsers()
+    } else {
+      ElMessage.error(result.message || '操作失败')
+    }
+  } catch (error) {
+    console.error('加入黑名单失败:', error)
+    ElMessage.error('操作失败，请检查网络连接')
+  }
+}
+
+// 解除黑名单
+const handleRemoveFromBlacklist = async (user: User) => {
+  try {
+    const response = await fetch(`http://localhost:8080/admin/blacklist/${user.userId}`, {
+      method: 'DELETE'
+    })
+
+    const result = await response.json()
+
+    if (result.code === 200) {
+      ElMessage.success('用户已从黑名单中移除')
+      loadUsers()
+    } else {
+      ElMessage.error(result.message || '操作失败')
+    }
+  } catch (error) {
+    console.error('解除黑名单失败:', error)
+    ElMessage.error('操作失败，请检查网络连接')
+  }
+}
+
 // 查看用户预约记录
 const handleViewReservations = async (user: User) => {
   currentUser.value = user
@@ -349,22 +510,6 @@ const handleViewReservations = async (user: User) => {
   } finally {
     reservationsLoading.value = false
   }
-}
-
-// 获取状态类型
-const getStatusType = (dateStr: string) => {
-  const today = new Date().toISOString().split('T')[0]
-  if (dateStr === today) return 'primary'
-  if (dateStr > today) return 'success'
-  return 'info'
-}
-
-// 获取状态文本
-const getStatusText = (dateStr: string) => {
-  const today = new Date().toISOString().split('T')[0]
-  if (dateStr === today) return '今日'
-  if (dateStr > today) return '预约中'
-  return '已完成'
 }
 
 // 页面加载
@@ -410,6 +555,12 @@ onMounted(() => {
   gap: 12px;
 }
 
+.filter-group {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
 /* 表格卡片 */
 .table-card {
   border-radius: 12px;
@@ -425,6 +576,10 @@ onMounted(() => {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   font-weight: 600;
+}
+
+.text-gray {
+  color: #909399;
 }
 
 /* 分页 */
@@ -458,6 +613,11 @@ onMounted(() => {
 
   .search-bar .el-input {
     width: 100% !important;
+  }
+  
+  .filter-group {
+    width: 100%;
+    justify-content: space-between;
   }
 }
 </style>

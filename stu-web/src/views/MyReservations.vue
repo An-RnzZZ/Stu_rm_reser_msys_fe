@@ -53,8 +53,8 @@
         </el-table-column>
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.resvDate)">
-              {{ getStatusText(row.resvDate) }}
+            <el-tag :type="getStatusType(row)">
+              {{ getStatusText(row) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -64,7 +64,7 @@
               详情
             </el-button>
             <el-popconfirm
-              v-if="canCancel(row.resvDate)"
+              v-if="canCancel(row)"
               title="确定要取消这个预约吗？"
               confirm-button-text="确定"
               cancel-button-text="取消"
@@ -117,8 +117,8 @@
             {{ formatTime(selectedReservation.resvstartTime) }} - {{ formatTime(selectedReservation.resvendTime) }}
           </el-descriptions-item>
           <el-descriptions-item label="状态">
-            <el-tag :type="getStatusType(selectedReservation.resvDate)">
-              {{ getStatusText(selectedReservation.resvDate) }}
+            <el-tag :type="getStatusType(selectedReservation)">
+              {{ getStatusText(selectedReservation) }}
             </el-tag>
           </el-descriptions-item>
         </el-descriptions>
@@ -140,6 +140,7 @@ interface Reservation {
   resvDate: string
   resvstartTime: string
   resvendTime: string
+  resvStatus?: string  // 预约状态: ACTIVE/COMPLETED/VIOLATED/CANCELLED
   seat?: {
     seatId: number
     seatNumber: string
@@ -233,27 +234,50 @@ const filteredReservations = computed(() => {
 
 const formatTime = (time: string) => time?.length > 5 ? time.substring(0, 5) : (time || '-')
 
-const getStatusType = (dateStr: string) => {
+// 预约状态映射
+const statusMap: Record<string, { type: string; text: string }> = {
+  'ACTIVE': { type: 'primary', text: '有效' },
+  'COMPLETED': { type: 'success', text: '已完成' },
+  'VIOLATED': { type: 'danger', text: '已违约' },
+  'CANCELLED': { type: 'info', text: '已取消' }
+}
+
+const getStatusType = (row: Reservation) => {
+  // 优先使用后端返回的预约状态
+  if (row.resvStatus && statusMap[row.resvStatus]) {
+    return statusMap[row.resvStatus].type
+  }
+  // 兼容旧逻辑：根据日期判断
   const today = getTodayDate()
-  if (dateStr === today) return 'primary'
-  if (dateStr > today) return 'success'
+  if (row.resvDate === today) return 'primary'
+  if (row.resvDate > today) return 'success'
   return 'info'
 }
 
-const getStatusText = (dateStr: string) => {
+const getStatusText = (row: Reservation) => {
+  // 优先使用后端返回的预约状态
+  if (row.resvStatus && statusMap[row.resvStatus]) {
+    return statusMap[row.resvStatus].text
+  }
+  // 兼容旧逻辑：根据日期判断
   const today = getTodayDate()
-  if (dateStr === today) return '今日'
-  if (dateStr > today) return '预约中'
+  if (row.resvDate === today) return '今日'
+  if (row.resvDate > today) return '预约中'
   return '已完成'
 }
 
-const canCancel = (dateStr: string) => dateStr >= getTodayDate()
+// 只有ACTIVE状态的预约且日期未过期才能取消
+const canCancel = (row: Reservation) => {
+  const isActive = !row.resvStatus || row.resvStatus === 'ACTIVE'
+  return isActive && row.resvDate >= getTodayDate()
+}
 
 const cancelReservation = async (reservation: Reservation) => {
   try {
     loading.value = true
-    const response = await fetch(`http://localhost:8080/reservation/${reservation.resvId}`, {
-      method: 'DELETE'
+    // 使用新的取消预约接口（软删除）
+    const response = await fetch(`http://localhost:8080/reservation/${reservation.resvId}/cancel`, {
+      method: 'PUT'
     })
     const result = await response.json()
 
