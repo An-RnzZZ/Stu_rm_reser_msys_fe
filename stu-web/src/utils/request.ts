@@ -2,7 +2,7 @@ import axios from 'axios'
 
 // 创建axios实例
 const request = axios.create({
-  baseURL: 'http://localhost:8080',  // 你的后端地址
+  baseURL: 'http://120.46.219.204:8080',  // 你的后端地址
   timeout: 5000,
   withCredentials: true,
   headers: {

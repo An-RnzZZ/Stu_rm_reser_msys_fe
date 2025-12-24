@@ -41,23 +41,23 @@
       </div>
     </el-card>
 
-    <!-- 座位统计 -->
+    <!-- 座位统计：适配无数据显示「未获取」 -->
     <el-row :gutter="16" class="stat-row">
       <el-col :xs="12" :sm="8">
         <div class="mini-stat">
-          <span class="mini-stat-value">{{ stats.total }}</span>
+          <span class="mini-stat-value">{{ stats.total ?? '未获取' }}</span>
           <span class="mini-stat-label">座位总数</span>
         </div>
       </el-col>
       <el-col :xs="12" :sm="8">
         <div class="mini-stat">
-          <span class="mini-stat-value" style="color: #67C23A;">{{ stats.available }}</span>
+          <span class="mini-stat-value" style="color: #67C23A;">{{ stats.available ?? '未获取' }}</span>
           <span class="mini-stat-label">可用座位</span>
         </div>
       </el-col>
       <el-col :xs="12" :sm="8">
         <div class="mini-stat">
-          <span class="mini-stat-value" style="color: #E6A23C;">{{ roomOptions.length }}</span>
+          <span class="mini-stat-value" style="color: #E6A23C;">{{ roomOptions.length > 0 ? roomOptions.length : '未获取' }}</span>
           <span class="mini-stat-label">自习室数量</span>
         </div>
       </el-col>
@@ -85,31 +85,28 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="所属自习室" min-width="180">
+        <!-- 优化：显示自习室+建筑名称 -->
+        <el-table-column label="所属自习室" min-width="200">
           <template #default="{ row }">
             <div v-if="row.room">
               <div class="room-name">{{ row.room.roomName }}</div>
-              <div class="room-info" v-if="row.room.roomFloor">
-                {{ row.room.roomFloor }}楼
+              <div class="room-info" v-if="row.room.building?.buildingName">
+                {{ row.room.roomFloor }}楼 · {{ row.room.building.buildingName }}
               </div>
             </div>
             <span v-else class="text-muted">未分配</span>
           </template>
         </el-table-column>
 
-        <el-table-column label="座位位置" width="120">
-          <template #default="{ row }">
-            <span v-if="row.seatRow && row.seatCol">
-              第{{ row.seatRow }}排 第{{ row.seatCol }}列
-            </span>
-            <span v-else class="text-muted">-</span>
-          </template>
-        </el-table-column>
+        <!-- 已删除：座位坐标列 -->
 
-        <el-table-column label="状态" width="100">
+        <!-- 核心修改：状态列适配 enabled 布尔字段 -->
+        <el-table-column label="状态" width="120">
           <template #default="{ row }">
-            <el-tag :type="row.seatStatus === 'AVAILABLE' ? 'success' : 'warning'">
-              {{ row.seatStatus === 'AVAILABLE' ? '可用' : '占用' }}
+            <el-tag
+              :type="getSeatStatusType(row.enabled)"
+            >
+              {{ getSeatStatusText(row.enabled) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -136,11 +133,12 @@
           layout="total, sizes, prev, pager, next, jumper"
           @size-change="handleSizeChange"
           @current-change="handlePageChange"
+          :disabled="stats.total === null"
         />
       </div>
     </el-card>
 
-    <!-- 座位详情弹窗 -->
+    <!-- 座位详情弹窗：适配新字段 -->
     <el-dialog
       v-model="detailDialogVisible"
       title="座位详情"
@@ -167,6 +165,11 @@
           <span class="detail-label">座位编号</span>
           <span class="detail-value">{{ currentSeat.seatNumber }}</span>
         </div>
+        <!-- 新增：建筑信息 -->
+        <div class="detail-item" v-if="currentSeat.room?.building?.buildingName">
+          <span class="detail-label">所属建筑</span>
+          <span class="detail-value">{{ currentSeat.room.building.buildingName }}</span>
+        </div>
         <div class="detail-item">
           <span class="detail-label">所属自习室</span>
           <span class="detail-value">{{ currentSeat.room?.roomName || '-' }}</span>
@@ -175,14 +178,13 @@
           <span class="detail-label">楼层</span>
           <span class="detail-value">{{ currentSeat.room.roomFloor }}楼</span>
         </div>
-        <div class="detail-item" v-if="currentSeat.seatRow">
-          <span class="detail-label">位置</span>
-          <span class="detail-value">第{{ currentSeat.seatRow }}排 第{{ currentSeat.seatCol }}列</span>
-        </div>
+        <!-- 已删除：座位坐标显示项 -->
         <div class="detail-item">
           <span class="detail-label">状态</span>
-          <el-tag :type="currentSeat.seatStatus === 'AVAILABLE' ? 'success' : 'warning'">
-            {{ currentSeat.seatStatus === 'AVAILABLE' ? '可用' : '占用' }}
+          <el-tag
+            :type="getSeatStatusType(currentSeat.enabled)"
+          >
+            {{ getSeatStatusText(currentSeat.enabled) }}
           </el-tag>
         </div>
       </div>
@@ -244,10 +246,10 @@ const filterRoom = ref('')
 // 自习室选项
 const roomOptions = ref<{ label: string; value: string }[]>([])
 
-// 统计
+// 统计：初始值设为 null（表示未获取）
 const stats = reactive({
-  total: 0,
-  available: 0
+  total: null as number | null,
+  available: null as number | null
 })
 
 // 弹窗
@@ -261,11 +263,11 @@ const reservationsLoading = ref(false)
 const filteredSeats = computed(() => {
   let result = [...seats.value]
 
-  // 关键词搜索
+  // 核心修复：座位编号是数字，转字符串后再搜索
   if (searchKeyword.value) {
     const keyword = searchKeyword.value.toLowerCase()
     result = result.filter(s =>
-      s.seatNumber?.toLowerCase().includes(keyword)
+      String(s.seatNumber).toLowerCase().includes(keyword)
     )
   }
 
@@ -281,11 +283,27 @@ const filteredSeats = computed(() => {
   return result.slice(start, start + pageSize.value)
 })
 
+// 核心修改：适配 enabled 布尔字段（true=可用，false=维修中）
+const getSeatStatusType = (enabled: boolean | undefined | null) => {
+  if (enabled === undefined || enabled === null) return 'info' // 未获取
+  return enabled === true ? 'success' : 'warning' // true=可用，false=维修中
+}
+
+const getSeatStatusText = (enabled: boolean | undefined | null) => {
+  if (enabled === undefined || enabled === null) return '未获取座位信息'
+  return enabled === true ? '可用' : '维修中'
+}
+
 // 加载座位数据
 const loadSeats = async () => {
   loading.value = true
+  // 重置统计为未获取
+  stats.total = null
+  stats.available = null
+  roomOptions.value = []
+
   try {
-    const response = await fetch('http://localhost:8080/admin/seats')
+    const response = await fetch('http://120.46.219.204:8080/admin/seats')
     const result = await response.json()
 
     if (result.code === 200) {
@@ -303,13 +321,21 @@ const loadSeats = async () => {
   }
 }
 
-// 计算统计
+// 核心修改：统计适配 enabled 布尔字段
 const calculateStats = () => {
+  // 无数据时保持 null
+  if (!seats.value || seats.value.length === 0) {
+    stats.total = null
+    stats.available = null
+    return
+  }
+
   stats.total = seats.value.length
-  stats.available = seats.value.filter(s => s.seatStatus === 'AVAILABLE' || !s.seatStatus).length
+  // 统计 enabled = true 的座位数量
+  stats.available = seats.value.filter(s => s.enabled === true).length
 }
 
-// 提取自习室选项
+// 提取自习室选项（优化：显示自习室+建筑名）
 const extractRoomOptions = () => {
   const roomSet = new Set<string>()
   seats.value.forEach(seat => {
@@ -349,7 +375,7 @@ const handleViewReservations = async (seat: any) => {
 
   try {
     // 获取所有预约，然后筛选该座位的预约
-    const response = await fetch('http://localhost:8080/admin/reservations')
+    const response = await fetch('http://120.46.219.204:8080/admin/reservations')
     const result = await response.json()
 
     if (result.code === 200) {

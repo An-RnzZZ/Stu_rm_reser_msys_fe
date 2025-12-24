@@ -183,7 +183,7 @@ const loadReservations = async () => {
 
   loading.value = true
   try {
-    const response = await fetch(`http://localhost:8080/admin/reservations/user/${userId}`)
+    const response = await fetch(`http://120.46.219.204:8080/admin/reservations/user/${userId}`)
     const result = await response.json()
 
     if (result.code === 200) {
@@ -275,9 +275,8 @@ const canCancel = (row: Reservation) => {
 const cancelReservation = async (reservation: Reservation) => {
   try {
     loading.value = true
-    // 使用新的取消预约接口（软删除）
-    const response = await fetch(`http://localhost:8080/reservation/${reservation.resvId}/cancel`, {
-      method: 'PUT'
+    const response = await fetch(`http://120.46.219.204:8080/reservation/${reservation.resvId}`, {
+      method: 'DELETE'
     })
     const result = await response.json()
 
