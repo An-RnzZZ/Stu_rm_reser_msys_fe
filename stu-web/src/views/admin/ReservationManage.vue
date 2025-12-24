@@ -285,7 +285,7 @@ const filteredReservations = computed(() => {
 const loadReservations = async () => {
   loading.value = true
   try {
-    const response = await fetch('http://120.46.219.204:8080/admin/reservations')
+    const response = await fetch('/api/admin/reservations')
     const result = await response.json()
 
     if (result.code === 200) {

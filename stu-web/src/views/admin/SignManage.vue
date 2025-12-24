@@ -283,7 +283,7 @@ const filteredSigns = computed(() => {
 const loadSigns = async () => {
   loading.value = true
   try {
-    const response = await fetch('http://120.46.219.204:8080/admin/signs')
+    const response = await fetch('/api/admin/signs')
     const result = await response.json()
 
     if (result.code === 200) {
