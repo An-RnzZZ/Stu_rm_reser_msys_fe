@@ -1161,23 +1161,18 @@ const toggleSeatEnable = async () => {
   const seat = adminSeat.value;
   if (!seat) return;
 
-  // 切换状态
-  seat.userData.enabled = !seat.userData.enabled;
-
-  // 发送禁用/启用请求到后端
   try {
     await api.put('/seat/update', {
-      seatId: seat.userData.backendSeatId,  // 后端座位 ID
-      seatEnabled: seat.userData.enabled         // 更新的状态
+      seatId: seat.userData.backendSeatId,
+      seatEnabled: seat.userData.enabled // ✅ 直接用 v-model 的值
     });
 
-    // 更新材质
     applySeatMaterialByEnabled(seat);
   } catch (error) {
     console.error('Failed to update seat status:', error);
-    // 处理错误，例如弹出提示用户更新失败
   }
 };
+
 
 
 

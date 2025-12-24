@@ -450,7 +450,7 @@ const handleDelete = async (user: User) => {
 // 加入黑名单
 const handleAddToBlacklist = async (user: User) => {
   try {
-    const response = await fetch(`http://localhost:8080/admin/blacklist/${user.userId}`, {
+    const response = await fetch(`/api/admin/blacklist/${user.userId}`, {
       method: 'POST'
     })
 
@@ -471,7 +471,7 @@ const handleAddToBlacklist = async (user: User) => {
 // 解除黑名单
 const handleRemoveFromBlacklist = async (user: User) => {
   try {
-    const response = await fetch(`http://localhost:8080/admin/blacklist/${user.userId}`, {
+    const response = await fetch(`/api/admin/blacklist/${user.userId}`, {
       method: 'DELETE'
     })
 
