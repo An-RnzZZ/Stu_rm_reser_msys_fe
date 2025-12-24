@@ -183,7 +183,7 @@ const loadReservations = async () => {
 
   loading.value = true
   try {
-    const response = await fetch(`http://120.46.219.204:8080/admin/reservations/user/${userId}`)
+    const response = await fetch(`/api/admin/reservations/user/${userId}`)
     const result = await response.json()
 
     if (result.code === 200) {
@@ -275,7 +275,7 @@ const canCancel = (row: Reservation) => {
 const cancelReservation = async (reservation: Reservation) => {
   try {
     loading.value = true
-    const response = await fetch(`http://120.46.219.204:8080/reservation/${reservation.resvId}`, {
+    const response = await fetch(`/api/reservation/${reservation.resvId}`, {
       method: 'DELETE'
     })
     const result = await response.json()

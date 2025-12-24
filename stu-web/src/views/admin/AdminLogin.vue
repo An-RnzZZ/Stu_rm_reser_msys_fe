@@ -110,7 +110,7 @@ const handleLogin = async () => {
 
   try {
     // 发送 POST 请求到后端进行登录验证
-    const response = await fetch('http://120.46.219.204:8080/admin/login', {
+    const response = await fetch('/api/admin/login', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'

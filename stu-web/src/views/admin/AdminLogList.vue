@@ -249,15 +249,15 @@ async function search() {
     // 根据日志类型选择接口
     switch (selectedLogType.value) {
       case 'admin':
-        url = '/admin/logs/admin/search'
+        url = '/api/admin/logs/admin/search'
         break
       case 'system':
-        url = '/admin/logs/system/search'
+        url = '/api/admin/logs/system/search'
         break
       case 'user':
         url = filters.userName
-          ? '/admin/logs/search'
-          : '/admin/logs/user'
+          ? '/api/admin/logs/search'
+          : '/api/admin/logs/user'
         // 用户搜索特殊处理
         if (filters.userName) {
           params.keyword = filters.userName
@@ -335,13 +335,13 @@ async function deleteLog(id: number) {
     let url = ''
     switch (selectedLogType.value) {
       case 'admin':
-        url = `/admin/logs/admin/${id}`
+        url = `/api/admin/logs/admin/${id}`
         break
       case 'system':
-        url = `/admin/logs/system/${id}`
+        url = `/api/admin/logs/system/${id}`
         break
       case 'user':
-        url = `/admin/logs/user/${id}`
+        url = `/api/admin/logs/user/${id}`
         break
     }
 

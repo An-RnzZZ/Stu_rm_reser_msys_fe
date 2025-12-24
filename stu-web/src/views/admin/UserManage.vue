@@ -53,7 +53,7 @@
         </el-table-column>
 
         <el-table-column prop="userAccount" label="账号" min-width="150" />
-        
+
         <el-table-column label="违规次数" width="100" align="center">
           <template #default="{ row }">
             <el-tag v-if="row.violationCount > 0" type="warning" size="small">
@@ -73,7 +73,7 @@
             </el-tag>
           </template>
         </el-table-column>
-        
+
         <el-table-column label="黑名单到期" width="170">
           <template #default="{ row }">
             <span v-if="row.isBlacklisted && row.blacklistUntil">
@@ -91,7 +91,7 @@
             <el-button type="primary" link :icon="View" @click="handleViewReservations(row)">
               预约
             </el-button>
-            
+
             <!-- 黑名单操作 -->
             <el-popconfirm
               v-if="row.isBlacklisted"
@@ -119,7 +119,7 @@
                 </el-button>
               </template>
             </el-popconfirm>
-            
+
             <el-popconfirm
               title="确定要删除该用户吗？"
               confirm-button-text="确定"
@@ -257,7 +257,7 @@ const filteredUsers = computed(() => {
       user.userAccount?.toLowerCase().includes(keyword)
     )
   }
-  
+
   // 黑名单筛选
   if (blacklistFilter.value === 'normal') {
     result = result.filter(user => !user.isBlacklisted)
@@ -352,7 +352,7 @@ const getResvStatusText = (row: any) => {
 const loadUsers = async () => {
   loading.value = true
   try {
-    const response = await fetch('http://120.46.219.204:8080/admin/users')
+    const response = await fetch('/api/admin/users')
     const result = await response.json()
 
     if (result.code === 200) {
@@ -400,7 +400,7 @@ const submitEdit = async () => {
 
   submitLoading.value = true
   try {
-    const response = await fetch(`http://120.46.219.204:8080/admin/users/${editForm.userId}`, {
+    const response = await fetch(`/api/admin/users/${editForm.userId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -429,7 +429,7 @@ const submitEdit = async () => {
 // 删除用户
 const handleDelete = async (user: User) => {
   try {
-    const response = await fetch(`http://120.46.219.204:8080/admin/users/${user.userId}`, {
+    const response = await fetch(`/api/admin/users/${user.userId}`, {
       method: 'DELETE'
     })
 
@@ -496,7 +496,7 @@ const handleViewReservations = async (user: User) => {
   reservationsLoading.value = true
 
   try {
-    const response = await fetch(`http://120.46.219.204:8080/admin/reservations/user/${user.userId}`)
+    const response = await fetch(`/api/admin/reservations/user/${user.userId}`)
     const result = await response.json()
 
     if (result.code === 200) {
@@ -614,7 +614,7 @@ onMounted(() => {
   .search-bar .el-input {
     width: 100% !important;
   }
-  
+
   .filter-group {
     width: 100%;
     justify-content: space-between;
