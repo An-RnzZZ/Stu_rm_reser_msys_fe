@@ -352,7 +352,7 @@ const getResvStatusText = (row: any) => {
 const loadUsers = async () => {
   loading.value = true
   try {
-    const response = await fetch('/api/admin/users')
+    const response = await fetch('/admin/users')
     const result = await response.json()
 
     if (result.code === 200) {
@@ -400,7 +400,7 @@ const submitEdit = async () => {
 
   submitLoading.value = true
   try {
-    const response = await fetch(`/api/admin/users/${editForm.userId}`, {
+    const response = await fetch(`/admin/users/${editForm.userId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -429,7 +429,7 @@ const submitEdit = async () => {
 // 删除用户
 const handleDelete = async (user: User) => {
   try {
-    const response = await fetch(`/api/admin/users/${user.userId}`, {
+    const response = await fetch(`/admin/users/${user.userId}`, {
       method: 'DELETE'
     })
 
@@ -450,7 +450,7 @@ const handleDelete = async (user: User) => {
 // 加入黑名单
 const handleAddToBlacklist = async (user: User) => {
   try {
-    const response = await fetch(`/api/admin/blacklist/${user.userId}`, {
+    const response = await fetch(`/admin/blacklist/${user.userId}`, {
       method: 'POST'
     })
 
@@ -471,7 +471,7 @@ const handleAddToBlacklist = async (user: User) => {
 // 解除黑名单
 const handleRemoveFromBlacklist = async (user: User) => {
   try {
-    const response = await fetch(`/api/admin/blacklist/${user.userId}`, {
+    const response = await fetch(`/admin/blacklist/${user.userId}`, {
       method: 'DELETE'
     })
 
@@ -496,7 +496,7 @@ const handleViewReservations = async (user: User) => {
   reservationsLoading.value = true
 
   try {
-    const response = await fetch(`/api/admin/reservations/user/${user.userId}`)
+    const response = await fetch(`/admin/reservations/user/${user.userId}`)
     const result = await response.json()
 
     if (result.code === 200) {
