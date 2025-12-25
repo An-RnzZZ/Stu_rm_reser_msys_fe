@@ -101,7 +101,7 @@
             </div>
             <div class="info-item">
               <span class="info-label">后端地址</span>
-              <span class="info-value">localhost:8080</span>
+              <span class="info-value">120.46.219.204:8080</span>
             </div>
             <div class="info-item">
               <span class="info-label">当前时间</span>
